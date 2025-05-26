@@ -29,7 +29,6 @@ class PIIShield:
             'account_number': r'\b\d{9,18}\b',
             'phone': r'\b(?:\+91[-.\s]?)?[6-9]\d{9}\b',
             'email': r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
-            'name': r'\b[A-Z][a-z]+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\b',
             'address': r'\b(?:house|flat|plot|door)\s*(?:no\.?|number)?\s*[0-9A-Za-z\-\/]+\b',
             'ifsc': r'\b[A-Z]{4}0[A-Z0-9]{6}\b',
             'pin_code': r'\b[1-9][0-9]{5}\b'
