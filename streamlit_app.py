@@ -1,151 +1,309 @@
 import streamlit as st
+import os
+from langchain_community.document_loaders import PDFPlumberLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_core.vectorstores import InMemoryVectorStore
+from langchain_groq import ChatGroq
+from langchain_core.prompts import ChatPromptTemplate
+from langchain.embeddings import HuggingFaceEmbeddings
 import pandas as pd
-import math
-from pathlib import Path
 
-# Set the title and favicon that appear in the Browser's tab bar.
+# Page configuration
 st.set_page_config(
-    page_title='GDP dashboard',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
+    page_title="Financial Underwriting Assistant",
+    page_icon="💰",
+    layout="wide"
 )
 
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
+st.title("💰 Financial Underwriting Assistant")
+st.subheader("Comprehensive Financial Analysis for Insurance Underwriting")
 
-@st.cache_data
-def get_gdp_data():
-    """Grab GDP data from a CSV file.
+# Financial underwriting specific template
+template = """
+Hello, AI Financial Underwriting Assistant. You are a specialized AI agent with expertise in financial underwriting for insurance products. Your role is to analyze customer financial documents and assess their financial viability for insurance policies based on the provided underwriting guidelines.
 
-    This uses caching to avoid having to read the file every time. If we were
-    reading from an HTTP endpoint instead of a file, it's a good idea to set
-    a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
-    """
+Your analysis should focus on:
 
-    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
-    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
-    raw_gdp_df = pd.read_csv(DATA_FILENAME)
+**Financial Document Analysis:**
+- Extract and analyze key financial information from salary slips, ITR documents, mutual fund statements, bank statements, etc.
+- Calculate income stability, debt-to-income ratios, and financial capacity
+- Assess financial history and patterns
 
-    MIN_YEAR = 1960
-    MAX_YEAR = 2022
+**Risk Assessment Parameters:**
+- Annual Income and Income Stability
+- Employment Status and Duration
+- Debt Obligations and Financial Commitments
+- Investment Portfolio and Assets
+- Financial History and Credit Profile
+- Premium Affordability Analysis
 
-    # The data above has columns like:
-    # - Country Name
-    # - Country Code
-    # - [Stuff I don't care about]
-    # - GDP for 1960
-    # - GDP for 1961
-    # - GDP for 1962
-    # - ...
-    # - GDP for 2022
-    #
-    # ...but I want this instead:
-    # - Country Name
-    # - Country Code
-    # - Year
-    # - GDP
-    #
-    # So let's pivot all those year-columns into two: Year and GDP
-    gdp_df = raw_gdp_df.melt(
-        ['Country Code'],
-        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
-        'Year',
-        'GDP',
+**Financial Viability Determination:**
+- Determine if the customer can afford the proposed insurance premium
+- Assess long-term financial sustainability
+- Calculate recommended coverage amounts based on financial capacity
+- Identify any financial red flags or concerns
+
+**Detailed Financial Report:**
+Create a comprehensive tabular analysis covering:
+| Parameter | Customer Value | Guideline Reference | Risk Assessment | Comments |
+|-----------|---------------|-------------------|-----------------|----------|
+
+**Financial Scoring:**
+Provide scores in the following format:
+- Income Stability Score: (0-100)
+- Debt Management Score: (0-100)
+- Premium Affordability Score: (0-100)
+- Overall Financial Risk Score: High Risk (0-30), Medium Risk (31-60), Low Risk (61-100)
+
+**Recommendation:**
+- Policy Eligibility: Approved/Conditional/Declined
+- Recommended Coverage Amount
+- Premium Payment Frequency Recommendation
+- Any additional financial requirements or conditions
+
+Question: {question}
+Context from Guidelines: {guidelines_context}
+Customer Financial Documents: {customer_context}
+Answer:
+"""
+
+# Directory setup
+guidelines_directory = '.github/guidelines/'
+customer_docs_directory = '.github/customer_docs/'
+
+# Create directories if they don't exist
+os.makedirs(guidelines_directory, exist_ok=True)
+os.makedirs(customer_docs_directory, exist_ok=True)
+
+# Initialize embeddings and vector stores
+embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+guidelines_vector_store = InMemoryVectorStore(embeddings)
+customer_docs_vector_store = InMemoryVectorStore(embeddings)
+
+# Initialize the model
+model = ChatGroq(
+    groq_api_key="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", 
+    model_name="meta-llama/llama-4-maverick-17b-128e-instruct", 
+    temperature=0.3
+)
+
+# Helper functions
+def upload_pdf(file, directory):
+    file_path = directory + file.name
+    with open(file_path, "wb") as f:
+        f.write(file.getbuffer())
+    return file_path
+
+def load_pdf(file_path):
+    loader = PDFPlumberLoader(file_path)
+    documents = loader.load()
+    return documents
+
+def split_text(documents):
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,
+        chunk_overlap=200,
+        add_start_index=True
     )
+    return text_splitter.split_documents(documents)
 
-    # Convert years from string to integers
-    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
+def extract_financial_info(documents):
+    """Extract key financial information from customer documents"""
+    financial_keywords = [
+        "salary", "income", "annual income", "monthly income", 
+        "basic pay", "gross salary", "net salary", "CTC",
+        "ITR", "income tax return", "form 16", "tax",
+        "mutual fund", "SIP", "investment", "portfolio",
+        "bank statement", "account balance", "savings",
+        "loan", "EMI", "debt", "liability", "credit",
+        "bonus", "incentive", "allowance", "deduction"
+    ]
+    
+    relevant_chunks = []
+    for doc in documents:
+        content_lower = doc.page_content.lower()
+        if any(keyword in content_lower for keyword in financial_keywords):
+            relevant_chunks.append(doc)
+    
+    return relevant_chunks
 
-    return gdp_df
+def analyze_customer_finances(question, guidelines_docs, customer_docs):
+    # Prepare contexts
+    guidelines_context = "\n\n".join([doc.page_content for doc in guidelines_docs])
+    
+    # Extract and focus on financial information from customer documents
+    financial_docs = extract_financial_info(customer_docs)
+    customer_context = "\n\n".join([doc.page_content for doc in financial_docs])
+    
+    prompt = ChatPromptTemplate.from_template(template)
+    chain = prompt | model
+    
+    response = chain.invoke({
+        "question": question,
+        "guidelines_context": guidelines_context,
+        "customer_context": customer_context
+    })
+    
+    return response.content
 
-gdp_df = get_gdp_data()
+# Initialize session state
+if "conversation_history" not in st.session_state:
+    st.session_state.conversation_history = []
+if "guidelines_loaded" not in st.session_state:
+    st.session_state.guidelines_loaded = False
+if "customer_docs_loaded" not in st.session_state:
+    st.session_state.customer_docs_loaded = False
 
-# -----------------------------------------------------------------------------
-# Draw the actual page
+# Create two columns for file uploads
+col1, col2 = st.columns(2)
 
-# Set the title that appears at the top of the page.
-'''
-# :earth_americas: GDP dashboard
+with col1:
+    st.markdown("### 📋 Upload Financial Underwriting Guidelines")
+    st.markdown("*Upload your company's financial underwriting guidelines (PDF format)*")
+    
+    guidelines_files = st.file_uploader(
+        "Choose Guidelines PDF files",
+        type="pdf",
+        accept_multiple_files=True,
+        key="guidelines_uploader",
+        help="Upload underwriting guidelines, financial criteria, and policy documents"
+    )
+    
+    if guidelines_files and not st.session_state.guidelines_loaded:
+        with st.spinner("Processing guidelines..."):
+            all_guideline_docs = []
+            for file in guidelines_files:
+                file_path = upload_pdf(file, guidelines_directory)
+                documents = load_pdf(file_path)
+                chunked_documents = split_text(documents)
+                all_guideline_docs.extend(chunked_documents)
+            
+            guidelines_vector_store.add_documents(all_guideline_docs)
+            st.session_state.guidelines_loaded = True
+            st.success(f"✅ {len(guidelines_files)} guideline document(s) processed successfully!")
 
-Browse GDP data from the [World Bank Open Data](https://data.worldbank.org/) website. As you'll
-notice, the data only goes to 2022 right now, and datapoints for certain years are often missing.
-But it's otherwise a great (and did I mention _free_?) source of data.
-'''
+with col2:
+    st.markdown("### 💼 Upload Customer Financial Documents")
+    st.markdown("*Upload customer's financial documents for analysis*")
+    
+    customer_files = st.file_uploader(
+        "Choose Customer Financial Documents",
+        type="pdf",
+        accept_multiple_files=True,
+        key="customer_uploader",
+        help="Upload salary slips, ITR, bank statements, mutual fund statements, etc."
+    )
+    
+    if customer_files:
+        with st.spinner("Processing customer documents..."):
+            all_customer_docs = []
+            for file in customer_files:
+                file_path = upload_pdf(file, customer_docs_directory)
+                documents = load_pdf(file_path)
+                chunked_documents = split_text(documents)
+                all_customer_docs.extend(chunked_documents)
+            
+            customer_docs_vector_store.add_documents(all_customer_docs)
+            st.session_state.customer_docs_loaded = True
+            st.success(f"✅ {len(customer_files)} customer document(s) processed successfully!")
 
-# Add some spacing
-''
-''
+# Document upload status
+if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
+    st.success("🎉 All documents loaded! Ready for financial analysis.")
+elif st.session_state.guidelines_loaded:
+    st.warning("⚠️ Guidelines loaded. Please upload customer financial documents.")
+elif st.session_state.customer_docs_loaded:
+    st.warning("⚠️ Customer documents loaded. Please upload underwriting guidelines.")
+else:
+    st.info("📤 Please upload both guidelines and customer financial documents to begin analysis.")
 
-min_value = gdp_df['Year'].min()
-max_value = gdp_df['Year'].max()
+# Financial Analysis Section
+if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
+    st.markdown("---")
+    st.markdown("### 🔍 Financial Analysis")
+    
+    # Quick analysis buttons
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("💰 Income Analysis", use_container_width=True):
+            st.session_state.conversation_history.append({
+                "role": "user", 
+                "content": "Analyze the customer's income sources, stability, and adequacy for insurance premium payments."
+            })
+    
+    with col2:
+        if st.button("📊 Financial Capacity", use_container_width=True):
+            st.session_state.conversation_history.append({
+                "role": "user", 
+                "content": "Assess the customer's overall financial capacity and recommend appropriate coverage amount."
+            })
+    
+    with col3:
+        if st.button("⚖️ Risk Assessment", use_container_width=True):
+            st.session_state.conversation_history.append({
+                "role": "user", 
+                "content": "Provide a comprehensive financial risk assessment and policy eligibility recommendation."
+            })
+    
+    # Chat interface
+    question = st.chat_input("Ask about financial underwriting analysis...")
+    
+    if question:
+        st.session_state.conversation_history.append({"role": "user", "content": question})
+    
+    # Process any new questions
+    if st.session_state.conversation_history and st.session_state.conversation_history[-1]["role"] == "user":
+        with st.spinner("Analyzing financial documents..."):
+            # Retrieve relevant documents
+            latest_question = st.session_state.conversation_history[-1]["content"]
+            guidelines_docs = guidelines_vector_store.similarity_search(latest_question, k=5)
+            customer_docs = customer_docs_vector_store.similarity_search(latest_question, k=10)
+            
+            # Generate analysis
+            answer = analyze_customer_finances(latest_question, guidelines_docs, customer_docs)
+            
+            st.session_state.conversation_history.append({"role": "assistant", "content": answer})
+    
+    # Display conversation history
+    for message in st.session_state.conversation_history:
+        if message["role"] == "user":
+            st.chat_message("user").write(message["content"])
+        elif message["role"] == "assistant":
+            st.chat_message("assistant").write(message["content"])
 
-from_year, to_year = st.slider(
-    'Which years are you interested in?',
-    min_value=min_value,
-    max_value=max_value,
-    value=[min_value, max_value])
+# Sidebar with financial document types
+with st.sidebar:
+    st.markdown("### 📄 Supported Financial Documents")
+    st.markdown("""
+    **Income Documents:**
+    - Salary Slips (last 3-6 months)
+    - Form 16 / ITR Documents
+    - Employment Letters
+    - Business Income Statements
+    
+    **Investment Documents:**
+    - Mutual Fund Statements
+    - Share Portfolio
+    - Fixed Deposits
+    - Insurance Policies
+    
+    **Banking Documents:**
+    - Bank Statements (6-12 months)
+    - Account Balance Certificates
+    - Loan Statements
+    - Credit Card Statements
+    
+    **Other Financial Records:**
+    - Property Documents
+    - Rental Income Proof
+    - Financial Audit Reports
+    """)
+    
+    if st.button("🗑️ Clear Analysis History"):
+        st.session_state.conversation_history = []
+        st.rerun()
 
-countries = gdp_df['Country Code'].unique()
-
-if not len(countries):
-    st.warning("Select at least one country")
-
-selected_countries = st.multiselect(
-    'Which countries would you like to view?',
-    countries,
-    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
-
-''
-''
-''
-
-# Filter the data
-filtered_gdp_df = gdp_df[
-    (gdp_df['Country Code'].isin(selected_countries))
-    & (gdp_df['Year'] <= to_year)
-    & (from_year <= gdp_df['Year'])
-]
-
-st.header('GDP over time', divider='gray')
-
-''
-
-st.line_chart(
-    filtered_gdp_df,
-    x='Year',
-    y='GDP',
-    color='Country Code',
-)
-
-''
-''
-
-
-first_year = gdp_df[gdp_df['Year'] == from_year]
-last_year = gdp_df[gdp_df['Year'] == to_year]
-
-st.header(f'GDP in {to_year}', divider='gray')
-
-''
-
-cols = st.columns(4)
-
-for i, country in enumerate(selected_countries):
-    col = cols[i % len(cols)]
-
-    with col:
-        first_gdp = first_year[first_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-        last_gdp = last_year[last_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-
-        if math.isnan(first_gdp):
-            growth = 'n/a'
-            delta_color = 'off'
-        else:
-            growth = f'{last_gdp / first_gdp:,.2f}x'
-            delta_color = 'normal'
-
-        st.metric(
-            label=f'{country} GDP',
-            value=f'{last_gdp:,.0f}B',
-            delta=growth,
-            delta_color=delta_color
-        )
+# Footer
+st.markdown("---")
+st.markdown("*Financial Underwriting Assistant - Ensuring comprehensive financial risk assessment for insurance underwriting*")
