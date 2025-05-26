@@ -151,8 +151,7 @@ with col1:
         "Choose Guidelines PDF files",
         type="pdf",
         accept_multiple_files=True,
-        key="guidelines_uploader",
-        help="Upload underwriting guidelines, financial criteria, and policy documents"
+        key="guidelines_uploader"
     )
     
     if guidelines_files and not st.session_state.guidelines_loaded:
@@ -176,8 +175,7 @@ with col2:
         "Choose Customer Financial Documents",
         type="pdf",
         accept_multiple_files=True,
-        key="customer_uploader",
-        help="Upload salary slips, ITR, bank statements, mutual fund statements, etc."
+        key="customer_uploader"
     )
     
     if customer_files:
