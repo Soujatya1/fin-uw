@@ -139,7 +139,6 @@ IMPORTANT: AS PER THE QUESTION, PLEASE TRY AND FIND THE ANSWER IN THE CONTEXT DO
 Be concise and specific. Only provide the information directly relevant to the question asked.
 
 Question: {question}
-Context from Guidelines: {guidelines_context}
 Customer Financial Documents: {customer_context}
 Answer:
 """
