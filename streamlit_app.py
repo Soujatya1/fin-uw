@@ -27,6 +27,7 @@ class PIIShield:
             'account_number': r'\b\d{9,18}\b',
             'phone': r'\b(?:\+91[-.\s]?)?[6-9]\d{9}\b',
             'email': r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
+            'name': r'\b[A-Z][a-z]+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\b',
             'address': r'\b(?:house|flat|plot|door)\s*(?:no\.?|number)?\s*[0-9A-Za-z\-\/]+\b',
             'ifsc': r'\b[A-Z]{4}0[A-Z0-9]{6}\b',
             'pin_code': r'\b[1-9][0-9]{5}\b'
@@ -47,25 +48,9 @@ class PIIShield:
             for match in matches:
                 original = match.group()
                 
+                # Create consistent anonymized replacement
                 if original not in self.replacement_map:
-                    hash_obj = hashlib.md5(original.encode())
-                    hash_hex = hash_obj.hexdigest()[:8].upper()
-                    
-                    if pii_type == 'pan_card':
-                        self.replacement_map[original] = f"PAN_{hash_hex}"
-                    elif pii_type == 'aadhaar':
-                        self.replacement_map[original] = f"XXXX XXXX {hash_hex[:4]}"
-                    elif pii_type == 'account_number':
-                        self.replacement_map[original] = f"ACC_{hash_hex}"
-                    elif pii_type == 'phone':
-                        self.replacement_map[original] = f"+91-XXXX-XX{hash_hex[:4]}"
-                    elif pii_type == 'email':
-                        domain = original.split('@')[1] if '@' in original else 'domain.com'
-                        self.replacement_map[original] = f"user_{hash_hex[:6]}@{domain}"
-                    elif pii_type == 'ifsc':
-                        self.replacement_map[original] = f"BANK{hash_hex[:8]}"
-                    else:
-                        self.replacement_map[original] = f"[{pii_type.upper()}_{hash_hex[:6]}]"
+                    self.replacement_map[original] = "###########"
                 
                 anonymized_text = anonymized_text.replace(original, self.replacement_map[original])
         
