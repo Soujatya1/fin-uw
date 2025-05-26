@@ -235,6 +235,13 @@ if "customer_docs_loaded" not in st.session_state:
 # PII Shield Settings in Sidebar
 with st.sidebar:
     st.markdown("### 🛡️ PII Protection Settings")
+    st.markdown("""
+### 🔒 Privacy & Security Notice
+- **PII Protection**: Personal identifiable information is automatically anonymized using hash-based replacement
+- **Data Retention**: Document data is stored in memory only and cleared when the session ends
+- **Secure Processing**: All financial analysis is performed on anonymized data
+- **Compliance**: Designed to help maintain privacy standards for financial document processing
+""")
     
     pii_enabled = st.toggle("Enable PII Shield", value=True, help="Automatically anonymize personal information")
     pii_shield.anonymization_enabled = pii_enabled
@@ -242,7 +249,6 @@ with st.sidebar:
     if pii_enabled:
         st.success("🛡️ PII Shield Active")
         
-        # Show PII summary if any data has been processed
         if pii_shield.replacement_map:
             st.markdown("#### PII Detection Summary")
             pii_summary = pii_shield.get_pii_summary()
@@ -255,7 +261,7 @@ with st.sidebar:
     
     if st.button("🗑️ Clear Analysis History"):
         st.session_state.conversation_history = []
-        pii_shield.replacement_map.clear()  # Clear PII mapping
+        pii_shield.replacement_map.clear()
         st.rerun()
     
     if st.button("🧹 Clear PII Cache"):
@@ -304,7 +310,6 @@ with col2:
                 documents = load_pdf(file_path)
                 chunked_documents = split_text(documents)
                 
-                # Apply PII shield to customer documents
                 if pii_shield.anonymization_enabled:
                     protected_documents = process_documents_with_pii_shield(chunked_documents)
                     all_customer_docs.extend(protected_documents)
@@ -376,13 +381,3 @@ if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
             st.chat_message("user").write(message["content"])
         elif message["role"] == "assistant":
             st.chat_message("assistant").write(message["content"])
-
-# Privacy Notice
-st.markdown("---")
-st.markdown("""
-### 🔒 Privacy & Security Notice
-- **PII Protection**: Personal identifiable information is automatically anonymized using hash-based replacement
-- **Data Retention**: Document data is stored in memory only and cleared when the session ends
-- **Secure Processing**: All financial analysis is performed on anonymized data
-- **Compliance**: Designed to help maintain privacy standards for financial document processing
-""")
