@@ -100,7 +100,6 @@ def split_text(documents):
     return text_splitter.split_documents(documents)
 
 def extract_financial_info(documents):
-    """Extract key financial information from customer documents"""
     financial_keywords = [
         "salary", "income", "annual income", "monthly income", 
         "basic pay", "gross salary", "net salary", "CTC",
