@@ -10,6 +10,7 @@ from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain.embeddings import HuggingFaceEmbeddings
 import pandas as pd
+from langchain_core.documents import Document
 
 st.set_page_config(
     page_title="Financial Underwriting Assistant",
@@ -38,7 +39,6 @@ class PIIShield:
         self.anonymization_enabled = True
     
     def anonymize_text(self, text: str) -> str:
-        """Anonymize PII in text while preserving structure for analysis"""
         if not self.anonymization_enabled:
             return text
             
@@ -49,7 +49,6 @@ class PIIShield:
             for match in matches:
                 original = match.group()
                 
-                # Create consistent anonymized replacement
                 if original not in self.replacement_map:
                     self.replacement_map[original] = "###########"
                 
@@ -69,7 +68,6 @@ class PIIShield:
 
 pii_shield = PIIShield()
 
-# Comprehensive template for detailed reports
 comprehensive_template = """
 Hello, AI Financial Underwriting Assistant. You are a specialized AI agent with expertise in financial underwriting for insurance products. Your role is to analyze customer financial documents and assess their financial viability for insurance policies based on the provided underwriting guidelines.
 
@@ -120,7 +118,6 @@ Customer Financial Documents: {customer_context}
 Answer:
 """
 
-# Specific template for targeted questions
 specific_template = """
 You are a financial underwriting expert. Answer the specific question asked based on the customer's financial documents and underwriting guidelines. Provide a direct, focused answer without unnecessary comprehensive analysis.
 
@@ -135,7 +132,6 @@ Answer:
 """
 
 def determine_question_type(question: str) -> str:
-    """Determine if the question requires comprehensive analysis or specific answer"""
     comprehensive_keywords = [
         "complete analysis", "full report", "comprehensive", "detailed analysis",
         "overall assessment", "complete evaluation", "full evaluation",
@@ -144,11 +140,9 @@ def determine_question_type(question: str) -> str:
     
     question_lower = question.lower()
     
-    # Check if it's asking for comprehensive analysis
     if any(keyword in question_lower for keyword in comprehensive_keywords):
         return "comprehensive"
     
-    # Check if it's a specific question
     specific_indicators = [
         "what is", "how much", "when", "where", "which", "who",
         "calculate", "show me", "find", "extract", "tell me about"
@@ -157,7 +151,6 @@ def determine_question_type(question: str) -> str:
     if any(indicator in question_lower for indicator in specific_indicators):
         return "specific"
     
-    # Default to specific for most questions
     return "specific"
 
 guidelines_directory = '.github/guidelines/'
@@ -215,14 +208,10 @@ def extract_financial_info(documents):
     return relevant_chunks
 
 def process_documents_with_pii_shield(documents):
-    """Process documents through PII shield"""
     protected_docs = []
     for doc in documents:
-        # Anonymize the content
         anonymized_content = pii_shield.anonymize_text(doc.page_content)
         
-        # Create new document with anonymized content
-        from langchain_core.documents import Document
         protected_doc = Document(
             page_content=anonymized_content,
             metadata=doc.metadata
@@ -237,7 +226,6 @@ def analyze_customer_finances(question, guidelines_docs, customer_docs):
     financial_docs = extract_financial_info(customer_docs)
     customer_context = "\n\n".join([doc.page_content for doc in financial_docs])
     
-    # Determine which template to use based on question type (Smart Auto-Detection)
     question_type = determine_question_type(question)
     
     if question_type == "comprehensive":
@@ -263,7 +251,6 @@ if "guidelines_loaded" not in st.session_state:
 if "customer_docs_loaded" not in st.session_state:
     st.session_state.customer_docs_loaded = False
 
-# PII Shield Settings in Sidebar
 with st.sidebar:
     st.markdown("### 🛡️ PII Protection Settings")
     st.markdown("""
