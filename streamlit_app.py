@@ -284,12 +284,11 @@ if "customer_docs_loaded" not in st.session_state:
 with st.sidebar:
     st.markdown("### 🛡️ PII Protection Settings")
     st.markdown("""
-### 🔒 Privacy & Security Notice
-- **PII Protection**: Personal identifiable information is automatically anonymized using hash-based replacement
-- **Data Retention**: Document data is stored in memory only and cleared when the session ends
-- **Secure Processing**: All financial analysis is performed on anonymized data
-- **Compliance**: Designed to help maintain privacy standards for financial document processing
-""")
+                ### 🔒 Privacy & Security Notice
+                - **PII Protection**: Personal identifiable information is automatically anonymized using hash-based replacement
+                - **Data Retention**: Document data is stored in memory only and cleared when the session ends
+                - **Secure Processing**: All financial analysis is performed on anonymized data
+                - **Compliance**: Designed to help maintain privacy standards for financial document processing""")
     
     pii_enabled = st.toggle("Enable PII Shield", value=True, help="Automatically anonymize personal information")
     pii_shield.anonymization_enabled = pii_enabled
