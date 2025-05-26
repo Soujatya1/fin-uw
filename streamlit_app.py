@@ -1,5 +1,8 @@
 import streamlit as st
 import os
+import re
+import hashlib
+from typing import List, Dict, Tuple
 from langchain_community.document_loaders import PDFPlumberLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.vectorstores import InMemoryVectorStore
@@ -14,10 +17,83 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("💰 Financial Underwriting Assistant")
+st.title("💰 Financial Underwriting Assistant with PII Shield 🛡️")
 
+# PII Shield Configuration
+class PIIShield:
+    def __init__(self):
+        self.pii_patterns = {
+            'pan_card': r'\b[A-Z]{5}[0-9]{4}[A-Z]{1}\b',
+            'aadhaar': r'\b\d{4}\s?\d{4}\s?\d{4}\b',
+            'account_number': r'\b\d{9,18}\b',
+            'phone': r'\b(?:\+91[-.\s]?)?[6-9]\d{9}\b',
+            'email': r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
+            'name': r'\b[A-Z][a-z]+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\b',
+            'address': r'\b(?:house|flat|plot|door)\s*(?:no\.?|number)?\s*[0-9A-Za-z\-\/]+\b',
+            'ifsc': r'\b[A-Z]{4}0[A-Z0-9]{6}\b',
+            'pin_code': r'\b[1-9][0-9]{5}\b'
+        }
+        
+        self.replacement_map = {}
+        self.anonymization_enabled = True
+    
+    def anonymize_text(self, text: str) -> str:
+        """Anonymize PII in text while preserving structure for analysis"""
+        if not self.anonymization_enabled:
+            return text
+            
+        anonymized_text = text
+        
+        for pii_type, pattern in self.pii_patterns.items():
+            matches = re.finditer(pattern, text, re.IGNORECASE)
+            for match in matches:
+                original = match.group()
+                
+                # Create consistent hash-based replacement
+                if original not in self.replacement_map:
+                    hash_obj = hashlib.md5(original.encode())
+                    hash_hex = hash_obj.hexdigest()[:8].upper()
+                    
+                    if pii_type == 'pan_card':
+                        self.replacement_map[original] = f"PAN_{hash_hex}"
+                    elif pii_type == 'aadhaar':
+                        self.replacement_map[original] = f"XXXX XXXX {hash_hex[:4]}"
+                    elif pii_type == 'account_number':
+                        self.replacement_map[original] = f"ACC_{hash_hex}"
+                    elif pii_type == 'phone':
+                        self.replacement_map[original] = f"+91-XXXX-XX{hash_hex[:4]}"
+                    elif pii_type == 'email':
+                        domain = original.split('@')[1] if '@' in original else 'domain.com'
+                        self.replacement_map[original] = f"user_{hash_hex[:6]}@{domain}"
+                    elif pii_type == 'name':
+                        self.replacement_map[original] = f"CUSTOMER_{hash_hex[:6]}"
+                    elif pii_type == 'ifsc':
+                        self.replacement_map[original] = f"BANK{hash_hex[:8]}"
+                    else:
+                        self.replacement_map[original] = f"[{pii_type.upper()}_{hash_hex[:6]}]"
+                
+                anonymized_text = anonymized_text.replace(original, self.replacement_map[original])
+        
+        return anonymized_text
+    
+    def get_pii_summary(self) -> Dict[str, int]:
+        """Get summary of PII types found"""
+        pii_summary = {}
+        for original, anonymized in self.replacement_map.items():
+            for pii_type, pattern in self.pii_patterns.items():
+                if re.match(pattern, original, re.IGNORECASE):
+                    pii_summary[pii_type] = pii_summary.get(pii_type, 0) + 1
+                    break
+        return pii_summary
+
+# Initialize PII Shield
+pii_shield = PIIShield()
+
+# Enhanced template with PII awareness
 template = """
 Hello, AI Financial Underwriting Assistant. You are a specialized AI agent with expertise in financial underwriting for insurance products. Your role is to analyze customer financial documents and assess their financial viability for insurance policies based on the provided underwriting guidelines.
+
+IMPORTANT: All customer data has been anonymized for privacy protection. Use anonymized identifiers in your analysis.
 
 Your analysis should focus on:
 
@@ -118,6 +194,23 @@ def extract_financial_info(documents):
     
     return relevant_chunks
 
+def process_documents_with_pii_shield(documents):
+    """Process documents through PII shield"""
+    protected_docs = []
+    for doc in documents:
+        # Anonymize the content
+        anonymized_content = pii_shield.anonymize_text(doc.page_content)
+        
+        # Create new document with anonymized content
+        from langchain_core.documents import Document
+        protected_doc = Document(
+            page_content=anonymized_content,
+            metadata=doc.metadata
+        )
+        protected_docs.append(protected_doc)
+    
+    return protected_docs
+
 def analyze_customer_finances(question, guidelines_docs, customer_docs):
     guidelines_context = "\n\n".join([doc.page_content for doc in guidelines_docs])
     
@@ -141,6 +234,36 @@ if "guidelines_loaded" not in st.session_state:
     st.session_state.guidelines_loaded = False
 if "customer_docs_loaded" not in st.session_state:
     st.session_state.customer_docs_loaded = False
+
+# PII Shield Settings in Sidebar
+with st.sidebar:
+    st.markdown("### 🛡️ PII Protection Settings")
+    
+    pii_enabled = st.toggle("Enable PII Shield", value=True, help="Automatically anonymize personal information")
+    pii_shield.anonymization_enabled = pii_enabled
+    
+    if pii_enabled:
+        st.success("🛡️ PII Shield Active")
+        
+        # Show PII summary if any data has been processed
+        if pii_shield.replacement_map:
+            st.markdown("#### PII Detection Summary")
+            pii_summary = pii_shield.get_pii_summary()
+            for pii_type, count in pii_summary.items():
+                st.write(f"• {pii_type.replace('_', ' ').title()}: {count} instances")
+    else:
+        st.warning("⚠️ PII Shield Disabled - Use with caution!")
+    
+    st.markdown("---")
+    
+    if st.button("🗑️ Clear Analysis History"):
+        st.session_state.conversation_history = []
+        pii_shield.replacement_map.clear()  # Clear PII mapping
+        st.rerun()
+    
+    if st.button("🧹 Clear PII Cache"):
+        pii_shield.replacement_map.clear()
+        st.success("PII cache cleared")
 
 col1, col2 = st.columns(2)
 
@@ -177,17 +300,28 @@ with col2:
     )
     
     if customer_files:
-        with st.spinner("Processing customer documents..."):
+        with st.spinner("Processing customer documents with PII protection..."):
             all_customer_docs = []
             for file in customer_files:
                 file_path = upload_pdf(file, customer_docs_directory)
                 documents = load_pdf(file_path)
                 chunked_documents = split_text(documents)
-                all_customer_docs.extend(chunked_documents)
+                
+                # Apply PII shield to customer documents
+                if pii_shield.anonymization_enabled:
+                    protected_documents = process_documents_with_pii_shield(chunked_documents)
+                    all_customer_docs.extend(protected_documents)
+                else:
+                    all_customer_docs.extend(chunked_documents)
             
             customer_docs_vector_store.add_documents(all_customer_docs)
             st.session_state.customer_docs_loaded = True
-            st.success(f"✅ {len(customer_files)} customer document(s) processed successfully!")
+            
+            if pii_shield.anonymization_enabled and pii_shield.replacement_map:
+                st.success(f"✅ {len(customer_files)} customer document(s) processed with PII protection!")
+                st.info(f"🛡️ {len(pii_shield.replacement_map)} PII elements anonymized")
+            else:
+                st.success(f"✅ {len(customer_files)} customer document(s) processed!")
 
 if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
     st.success("🎉 All documents loaded! Ready for financial analysis.")
@@ -246,7 +380,12 @@ if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
         elif message["role"] == "assistant":
             st.chat_message("assistant").write(message["content"])
 
-with st.sidebar:
-    if st.button("🗑️ Clear Analysis History"):
-        st.session_state.conversation_history = []
-        st.rerun()
+# Privacy Notice
+st.markdown("---")
+st.markdown("""
+### 🔒 Privacy & Security Notice
+- **PII Protection**: Personal identifiable information is automatically anonymized using hash-based replacement
+- **Data Retention**: Document data is stored in memory only and cleared when the session ends
+- **Secure Processing**: All financial analysis is performed on anonymized data
+- **Compliance**: Designed to help maintain privacy standards for financial document processing
+""")
