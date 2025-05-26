@@ -436,16 +436,6 @@ with st.sidebar:
     else:
         st.warning("⚠️ PII Shield Disabled - Use with caution!")
     
-    # Show table extraction stats
-    if st.session_state.table_stats["total_tables"] > 0:
-        st.markdown("#### 📊 Table Extraction Stats")
-        st.write(f"• Total tables extracted: {st.session_state.table_stats['total_tables']}")
-        st.write("• Tables by page:")
-        for page, count in st.session_state.table_stats["tables_by_page"].items():
-            st.write(f"  - Page {page}: {count} tables")
-    
-    st.markdown("---")
-    
     if st.button("🗑️ Clear Analysis History"):
         st.session_state.conversation_history = []
         st.session_state.extracted_customer_content = []
