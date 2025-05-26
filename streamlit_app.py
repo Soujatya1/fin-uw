@@ -169,7 +169,6 @@ with col1:
 
 with col2:
     st.markdown("### 💼 Upload Customer Financial Documents")
-    st.markdown("*Upload customer's financial documents for analysis*")
     
     customer_files = st.file_uploader(
         "Choose Customer Financial Documents",
