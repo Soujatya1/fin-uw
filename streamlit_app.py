@@ -3,7 +3,7 @@ import os
 import re
 import hashlib
 from typing import List, Dict, Tuple
-from langchain_community.document_loaders import PDFPlumberLoader
+import pdfplumber
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_groq import ChatGroq
@@ -66,29 +66,199 @@ class PIIShield:
 
 pii_shield = PIIShield()
 
+def extract_tables_from_pdf(file_path):
+    """Enhanced PDF extraction with table parsing capability"""
+    document_content = []
+    
+    with pdfplumber.open(file_path) as pdf:
+        for page_num, page in enumerate(pdf.pages):
+            # Extract text content
+            text = page.extract_text() or ""
+            if text.strip():
+                document_content.append({
+                    "content": text,
+                    "page": page_num + 1,
+                    "type": "text"
+                })
+            
+            # Extract tables
+            tables = page.extract_tables()
+            for table_num, table in enumerate(tables):
+                if table:
+                    df = pd.DataFrame(table)
+                    
+                    if not df.empty:
+                        # Process headers
+                        headers = []
+                        if len(df.columns) > 0:
+                            if not pd.isna(df.iloc[0]).all() and not all(x is None for x in df.iloc[0]):
+                                headers = [str(h).strip() if h is not None else f"Column_{i}" 
+                                          for i, h in enumerate(df.iloc[0])]
+                                df = df.iloc[1:]
+                            else:
+                                headers = [f"Column_{i}" for i in range(len(df.columns))]
+                        
+                        # Handle duplicate headers
+                        unique_headers = []
+                        header_counts = {}
+                        
+                        for h in headers:
+                            if h in header_counts:
+                                header_counts[h] += 1
+                                unique_headers.append(f"{h}_{header_counts[h]}")
+                            else:
+                                header_counts[h] = 0
+                                unique_headers.append(h)
+                        
+                        df.columns = unique_headers
+                    
+                    document_content.append({
+                        "page": page_num + 1,
+                        "type": "table",
+                        "table_number": table_num + 1,
+                        "dataframe": df
+                    })
+    
+    return document_content
+
+def format_table_for_llm(df: pd.DataFrame, table_info: dict) -> str:
+    """Convert DataFrame to structured text format for LLM"""
+    if df.empty:
+        return f"Empty table on page {table_info['page']}"
+    
+    # Create a structured representation
+    table_text = f"\n--- TABLE {table_info['table_number']} (Page {table_info['page']}) ---\n"
+    
+    # Add table in markdown format for better LLM understanding
+    table_text += df.to_string(index=False, na_rep='') + "\n"
+    
+    # Add key-value pairs for important financial data
+    table_text += "\nKey Financial Data from this table:\n"
+    for col in df.columns:
+        non_null_values = df[col].dropna()
+        if not non_null_values.empty:
+            # Check if column contains numerical data
+            numeric_values = []
+            for val in non_null_values:
+                if isinstance(val, (int, float)) or (isinstance(val, str) and any(char.isdigit() for char in str(val))):
+                    numeric_values.append(str(val))
+            
+            if numeric_values:
+                table_text += f"- {col}: {', '.join(numeric_values[:5])}\n"  # Limit to first 5 values
+    
+    table_text += "--- END TABLE ---\n"
+    return table_text
+
+def load_pdf_with_tables(file_path):
+    """Load PDF and create documents with both text and table content"""
+    document_content = extract_tables_from_pdf(file_path)
+    documents = []
+    
+    for content in document_content:
+        if content["type"] == "text":
+            # Create document from text content
+            doc = Document(
+                page_content=content["content"],
+                metadata={
+                    "source": file_path,
+                    "page": content["page"],
+                    "type": "text"
+                }
+            )
+            documents.append(doc)
+            
+        elif content["type"] == "table":
+            # Create document from table content
+            table_text = format_table_for_llm(content["dataframe"], content)
+            doc = Document(
+                page_content=table_text,
+                metadata={
+                    "source": file_path,
+                    "page": content["page"],
+                    "type": "table",
+                    "table_number": content["table_number"]
+                }
+            )
+            documents.append(doc)
+    
+    return documents
+
+def split_text(documents):
+    """Split documents into chunks, with special handling for tables"""
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1500,  # Increased chunk size for tables
+        chunk_overlap=200,
+        add_start_index=True
+    )
+    
+    chunked_docs = []
+    for doc in documents:
+        if doc.metadata.get("type") == "table":
+            # Don't split table documents to preserve structure
+            chunked_docs.append(doc)
+        else:
+            # Split text documents normally
+            chunks = text_splitter.split_documents([doc])
+            chunked_docs.extend(chunks)
+    
+    return chunked_docs
+
+def extract_financial_info(documents):
+    """Enhanced financial info extraction that considers both text and tables"""
+    financial_keywords = [
+        "salary", "income", "annual income", "monthly income", 
+        "basic pay", "gross salary", "net salary", "CTC",
+        "ITR", "income tax return", "form 16", "tax",
+        "mutual fund", "SIP", "investment", "portfolio",
+        "credit card", "investment amount", "units", "NAV",
+        "bank statement", "account balance", "savings",
+        "loan", "EMI", "debt", "liability", "credit",
+        "bonus", "incentive", "allowance", "deduction",
+        "amount", "balance", "value", "total", "sum"
+    ]
+    
+    relevant_chunks = []
+    for doc in documents:
+        content_lower = doc.page_content.lower()
+        
+        # Always include table documents as they likely contain financial data
+        if doc.metadata.get("type") == "table":
+            relevant_chunks.append(doc)
+        # Check text documents for financial keywords
+        elif any(keyword in content_lower for keyword in financial_keywords):
+            relevant_chunks.append(doc)
+    
+    return relevant_chunks
+
+# Rest of the template and analysis code remains the same...
 comprehensive_template = """
 Hello, AI Financial Underwriting Assistant. You are a specialized AI agent with expertise in financial underwriting for insurance products. Your role is to analyze customer financial documents and assess their financial viability for insurance policies based on the provided underwriting guidelines.
 
 IMPORTANT: All customer data has been anonymized for privacy protection. Use anonymized identifiers in your analysis.
 
+DOCUMENT FORMAT NOTICE: The customer documents contain both text content and structured TABLE data. Tables are clearly marked with "--- TABLE X (Page Y) ---" headers. Pay special attention to tabular data as it often contains key financial figures.
+
 CRITICAL INSTRUCTIONS:
-1. CAREFULLY READ through ALL the provided customer financial documents
+1. CAREFULLY READ through ALL the provided customer financial documents including both text and tables
 2. Extract SPECIFIC numerical values, amounts, and financial data mentioned in the documents
-3. When asked about specific values like "Investment Amount", look for exact matches and related terms
-4. If you cannot find specific information, clearly state what information is missing
-5. Always quote the exact text/numbers from the documents when available
+3. When analyzing tables, look for columns with financial data like amounts, balances, dates, etc.
+4. When asked about specific values like "Investment Amount", look for exact matches in both text and table format
+5. If you cannot find specific information, clearly state what information is missing
+6. Always quote the exact text/numbers from the documents when available
+7. For tabular data, reference the table number and page for traceability
 
 DOCUMENT ANALYSIS FOCUS:
-- Salary slips: Basic pay, gross salary, net salary, deductions, allowances
-- Mutual Fund statements: Investment amount, current value, NAV, units, SIP amounts, portfolio value
-- Bank statements: Account balance, transaction amounts, monthly credits/debits
-- Credit card statements: Credit limit, outstanding balance, payment history
-- ITR documents: Total income, tax paid, investments under 80C
+- Salary slips: Basic pay, gross salary, net salary, deductions, allowances (often in tabular format)
+- Mutual Fund statements: Investment amount, current value, NAV, units, SIP amounts, portfolio value (usually tabular)
+- Bank statements: Account balance, transaction amounts, monthly credits/debits (tabular transaction data)
+- Credit card statements: Credit limit, outstanding balance, payment history (tabular)
+- ITR documents: Total income, tax paid, investments under 80C (may include tabular schedules)
 
 Your analysis should focus on:
 
 **Financial Document Analysis:**
 - Extract and analyze key financial information from salary slips, ITR documents, mutual fund statements, credit card statements and reports, bank statements, etc.
+- Pay special attention to tabular data which often contains precise financial figures
 - Calculate income stability, debt-to-income ratios, and financial capacity
 - Assess financial history and patterns
 
@@ -108,8 +278,8 @@ Your analysis should focus on:
 
 **Detailed Financial Report:**
 Create a comprehensive tabular analysis covering:
-| Parameter | Customer Value | Guideline Reference | Risk Assessment | Comments |
-|-----------|---------------|-------------------|-----------------|----------|
+| Parameter | Customer Value | Source (Text/Table Page) | Risk Assessment | Comments |
+|-----------|---------------|------------------------|-----------------|----------|
 
 **Financial Scoring:**
 Provide scores in the following format:
@@ -131,11 +301,13 @@ Answer:
 """
 
 specific_template = """
-You are a financial underwriting expert. Answer the specific question asked based on the customer's financial documents and underwriting guidelines. Provide a direct, focused answer without unnecessary comprehensive analysis.
+You are a financial underwriting expert. Answer the specific question asked based on the customer's financial documents and underwriting guidelines. 
 
-IMPORTANT: AS PER THE QUESTION, PLEASE TRY AND FIND THE ANSWER IN THE CONTEXT DOCUMENT, DO NOT ASSUME ANY HYPOTHETICAL SCENARIO/NUMBERS.
+IMPORTANT: The documents contain both TEXT and TABLE data. Tables are marked with "--- TABLE X (Page Y) ---" headers. Look for specific values in both formats.
 
-Be concise and specific. Only provide the information directly relevant to the question asked.
+CRITICAL: Please search carefully in both text content and tabular data. Financial documents often have key information in table format.
+
+Be concise and specific. Only provide the information directly relevant to the question asked. If you find the information in a table, mention the table number and page.
 
 Question: {question}
 Customer Financial Documents: {customer_context}
@@ -164,12 +336,14 @@ def determine_question_type(question: str) -> str:
     
     return "specific"
 
+# Directory setup
 guidelines_directory = '.github/guidelines/'
 customer_docs_directory = '.github/customer_docs/'
 
 os.makedirs(guidelines_directory, exist_ok=True)
 os.makedirs(customer_docs_directory, exist_ok=True)
 
+# Initialize embeddings and vector stores
 embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 guidelines_vector_store = InMemoryVectorStore(embeddings)
 customer_docs_vector_store = InMemoryVectorStore(embeddings)
@@ -185,39 +359,6 @@ def upload_pdf(file, directory):
     with open(file_path, "wb") as f:
         f.write(file.getbuffer())
     return file_path
-
-def load_pdf(file_path):
-    loader = PDFPlumberLoader(file_path)
-    documents = loader.load()
-    return documents
-
-def split_text(documents):
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,
-        chunk_overlap=200,
-        add_start_index=True
-    )
-    return text_splitter.split_documents(documents)
-
-def extract_financial_info(documents):
-    financial_keywords = [
-        "salary", "income", "annual income", "monthly income", 
-        "basic pay", "gross salary", "net salary", "CTC",
-        "ITR", "income tax return", "form 16", "tax",
-        "mutual fund", "SIP", "investment", "portfolio",
-        "credit card", "investment amount", "units",
-        "bank statement", "account balance", "savings",
-        "loan", "EMI", "debt", "liability", "credit",
-        "bonus", "incentive", "allowance", "deduction"
-    ]
-    
-    relevant_chunks = []
-    for doc in documents:
-        content_lower = doc.page_content.lower()
-        if any(keyword in content_lower for keyword in financial_keywords):
-            relevant_chunks.append(doc)
-    
-    return relevant_chunks
 
 def process_documents_with_pii_shield(documents):
     protected_docs = []
@@ -267,7 +408,10 @@ if "extracted_customer_content" not in st.session_state:
     st.session_state.extracted_customer_content = []
 if "customer_file_names" not in st.session_state:
     st.session_state.customer_file_names = []
+if "table_stats" not in st.session_state:
+    st.session_state.table_stats = {"total_tables": 0, "tables_by_page": {}}
 
+# Sidebar with PII protection settings
 with st.sidebar:
     st.markdown("### 🛡️ PII Protection Settings")
     st.markdown("""
@@ -275,6 +419,7 @@ with st.sidebar:
                 - **PII Protection**: Personal identifiable information is automatically anonymized using hash-based replacement
                 - **Data Retention**: Document data is stored in memory only and cleared when the session ends
                 - **Secure Processing**: All financial analysis is performed on anonymized data
+                - **Table Extraction**: Enhanced parsing preserves tabular financial data structure
                 - **Compliance**: Designed to help maintain privacy standards for financial document processing""")
     
     pii_enabled = st.toggle("Enable PII Shield", value=True, help="Automatically anonymize personal information")
@@ -291,12 +436,21 @@ with st.sidebar:
     else:
         st.warning("⚠️ PII Shield Disabled - Use with caution!")
     
+    # Show table extraction stats
+    if st.session_state.table_stats["total_tables"] > 0:
+        st.markdown("#### 📊 Table Extraction Stats")
+        st.write(f"• Total tables extracted: {st.session_state.table_stats['total_tables']}")
+        st.write("• Tables by page:")
+        for page, count in st.session_state.table_stats["tables_by_page"].items():
+            st.write(f"  - Page {page}: {count} tables")
+    
     st.markdown("---")
     
     if st.button("🗑️ Clear Analysis History"):
         st.session_state.conversation_history = []
         st.session_state.extracted_customer_content = []
         st.session_state.customer_file_names = []
+        st.session_state.table_stats = {"total_tables": 0, "tables_by_page": {}}
         pii_shield.replacement_map.clear()
         st.rerun()
     
@@ -304,6 +458,7 @@ with st.sidebar:
         pii_shield.replacement_map.clear()
         st.success("PII cache cleared")
 
+# Main interface
 col1, col2 = st.columns(2)
 
 with col1:
@@ -315,11 +470,11 @@ with col1:
     )
     
     if guidelines_files and not st.session_state.guidelines_loaded:
-        with st.spinner("Processing guidelines..."):
+        with st.spinner("Processing guidelines with table extraction..."):
             all_guideline_docs = []
             for file in guidelines_files:
                 file_path = upload_pdf(file, guidelines_directory)
-                documents = load_pdf(file_path)
+                documents = load_pdf_with_tables(file_path)
                 chunked_documents = split_text(documents)
                 all_guideline_docs.extend(chunked_documents)
             
@@ -336,13 +491,23 @@ with col2:
     )
     
     if customer_files:
-        with st.spinner("Processing customer documents with PII protection..."):
+        with st.spinner("Processing customer documents with enhanced table extraction..."):
             all_customer_docs = []
             st.session_state.customer_file_names = [file.name for file in customer_files]
+            table_count = 0
+            tables_by_page = {}
             
             for file in customer_files:
                 file_path = upload_pdf(file, customer_docs_directory)
-                documents = load_pdf(file_path)
+                documents = load_pdf_with_tables(file_path)
+                
+                # Count tables for stats
+                for doc in documents:
+                    if doc.metadata.get("type") == "table":
+                        table_count += 1
+                        page = doc.metadata.get("page", 0)
+                        tables_by_page[page] = tables_by_page.get(page, 0) + 1
+                
                 chunked_documents = split_text(documents)
                 
                 if pii_shield.anonymization_enabled:
@@ -351,20 +516,30 @@ with col2:
                 else:
                     all_customer_docs.extend(chunked_documents)
             
+            # Update table stats
+            st.session_state.table_stats = {
+                "total_tables": table_count,
+                "tables_by_page": tables_by_page
+            }
+            
             # Store extracted content for display
             st.session_state.extracted_customer_content = all_customer_docs
             
             customer_docs_vector_store.add_documents(all_customer_docs)
             st.session_state.customer_docs_loaded = True
             
+            success_msg = f"✅ {len(customer_files)} customer document(s) processed!"
+            if table_count > 0:
+                success_msg += f" 📊 {table_count} tables extracted!"
+            
             if pii_shield.anonymization_enabled and pii_shield.replacement_map:
-                st.success(f"✅ {len(customer_files)} customer document(s) processed with PII protection!")
-                st.info(f"🛡️ {len(pii_shield.replacement_map)} PII elements anonymized")
-            else:
-                st.success(f"✅ {len(customer_files)} customer document(s) processed!")
+                success_msg += f" 🛡️ {len(pii_shield.replacement_map)} PII elements anonymized!"
+            
+            st.success(success_msg)
 
+# Status indicators
 if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
-    st.success("🎉 All documents loaded! Ready for financial analysis.")
+    st.success("🎉 All documents loaded! Enhanced table extraction ready for financial analysis.")
 elif st.session_state.guidelines_loaded:
     st.warning("Guidelines loaded. Please upload customer financial documents.")
 elif st.session_state.customer_docs_loaded:
@@ -372,21 +547,29 @@ elif st.session_state.customer_docs_loaded:
 else:
     st.info("📤 Please upload both guidelines and customer financial documents to begin analysis.")
 
-# NEW SECTION: Display Extracted Customer Document Content
+# Enhanced document content display section
 if st.session_state.customer_docs_loaded and st.session_state.extracted_customer_content:
     st.markdown("---")
-    st.markdown("### 📄 Extracted Customer Document Content")
+    st.markdown("### 📄 Extracted Document Content with Table Data")
     
     # Create tabs for different views
-    tab1, tab2, tab3 = st.tabs(["📋 All Content", "💰 Financial Content Only", "📊 Document Summary"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📋 All Content", "💰 Financial Content", "📊 Tables Only", "📈 Document Summary"])
     
     with tab1:
-        st.markdown("#### Complete Extracted Content")
+        st.markdown("#### Complete Extracted Content (Text + Tables)")
         st.info(f"Showing content from {len(st.session_state.customer_file_names)} uploaded files: {', '.join(st.session_state.customer_file_names)}")
         
         with st.expander("🔍 View All Extracted Content", expanded=False):
             for i, doc in enumerate(st.session_state.extracted_customer_content):
-                st.markdown(f"**Chunk {i+1}** (Source: {doc.metadata.get('source', 'Unknown')})")
+                doc_type = doc.metadata.get('type', 'text')
+                page = doc.metadata.get('page', 'Unknown')
+                table_num = doc.metadata.get('table_number', '')
+                
+                if doc_type == 'table':
+                    st.markdown(f"**📊 Table {table_num}** (Page {page})")
+                else:
+                    st.markdown(f"**📝 Text Content** (Page {page})")
+                
                 st.text_area(
                     f"Content {i+1}",
                     value=doc.page_content,
@@ -397,15 +580,26 @@ if st.session_state.customer_docs_loaded and st.session_state.extracted_customer
                 st.markdown("---")
     
     with tab2:
-        st.markdown("#### Financial Content Only")
+        st.markdown("#### Financial Content (Text + Tables)")
         financial_docs = extract_financial_info(st.session_state.extracted_customer_content)
         
         if financial_docs:
-            st.success(f"Found {len(financial_docs)} chunks with financial information")
+            text_count = sum(1 for doc in financial_docs if doc.metadata.get('type') != 'table')
+            table_count = sum(1 for doc in financial_docs if doc.metadata.get('type') == 'table')
+            
+            st.success(f"Found {len(financial_docs)} financial chunks ({text_count} text, {table_count} tables)")
             
             with st.expander("💰 View Financial Content", expanded=True):
                 for i, doc in enumerate(financial_docs):
-                    st.markdown(f"**Financial Chunk {i+1}** (Source: {doc.metadata.get('source', 'Unknown')})")
+                    doc_type = doc.metadata.get('type', 'text')
+                    page = doc.metadata.get('page', 'Unknown')
+                    
+                    if doc_type == 'table':
+                        table_num = doc.metadata.get('table_number', '')
+                        st.markdown(f"**📊 Financial Table {table_num}** (Page {page})")
+                    else:
+                        st.markdown(f"**💰 Financial Text** (Page {page})")
+                    
                     st.text_area(
                         f"Financial Content {i+1}",
                         value=doc.page_content,
@@ -418,9 +612,33 @@ if st.session_state.customer_docs_loaded and st.session_state.extracted_customer
             st.warning("No financial content detected in the uploaded documents.")
     
     with tab3:
-        st.markdown("#### Document Processing Summary")
+        st.markdown("#### Tables Only")
+        table_docs = [doc for doc in st.session_state.extracted_customer_content if doc.metadata.get('type') == 'table']
         
-        col1, col2, col3 = st.columns(3)
+        if table_docs:
+            st.success(f"Found {len(table_docs)} tables across all documents")
+            
+            with st.expander("📊 View All Tables", expanded=True):
+                for i, doc in enumerate(table_docs):
+                    page = doc.metadata.get('page', 'Unknown')
+                    table_num = doc.metadata.get('table_number', i+1)
+                    
+                    st.markdown(f"**📊 Table {table_num}** (Page {page})")
+                    st.text_area(
+                        f"Table {i+1}",
+                        value=doc.page_content,
+                        height=200,
+                        key=f"table_content_{i}",
+                        label_visibility="collapsed"
+                    )
+                    st.markdown("---")
+        else:
+            st.info("No tables detected in the uploaded documents.")
+    
+    with tab4:
+        st.markdown("#### Enhanced Document Processing Summary")
+        
+        col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             st.metric("Total Files", len(st.session_state.customer_file_names))
@@ -432,27 +650,36 @@ if st.session_state.customer_docs_loaded and st.session_state.extracted_customer
             financial_chunks = len(extract_financial_info(st.session_state.extracted_customer_content))
             st.metric("Financial Chunks", financial_chunks)
         
+        with col4:
+            st.metric("Tables Extracted", st.session_state.table_stats["total_tables"])
+        
         st.markdown("**Uploaded Files:**")
         for i, filename in enumerate(st.session_state.customer_file_names, 1):
             st.write(f"{i}. {filename}")
+        
+        # Content type breakdown
+        text_docs = sum(1 for doc in st.session_state.extracted_customer_content if doc.metadata.get('type') != 'table')
+        table_docs = sum(1 for doc in st.session_state.extracted_customer_content if doc.metadata.get('type') == 'table')
+        
+        st.markdown("**Content Type Breakdown:**")
+        st.write(f"• Text chunks: {text_docs}")
+        st.write(f"• Table chunks: {table_docs}")
+        
+        if st.session_state.table_stats["tables_by_page"]:
+            st.markdown("**Tables by Page:**")
+            for page, count in sorted(st.session_state.table_stats["tables_by_page"].items()):
+                st.write(f"• Page {page}: {count} tables")
         
         if pii_shield.replacement_map:
             st.markdown("**PII Protection Summary:**")
             pii_summary = pii_shield.get_pii_summary()
             for pii_type, count in pii_summary.items():
                 st.write(f"• {pii_type.replace('_', ' ').title()}: {count} instances anonymized")
-        
-        # Show content statistics
-        total_chars = sum(len(doc.page_content) for doc in st.session_state.extracted_customer_content)
-        avg_chunk_size = total_chars // len(st.session_state.extracted_customer_content) if st.session_state.extracted_customer_content else 0
-        
-        st.markdown("**Content Statistics:**")
-        st.write(f"• Total characters extracted: {total_chars:,}")
-        st.write(f"• Average chunk size: {avg_chunk_size} characters")
 
+# Analysis section
 if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
     st.markdown("---")
-    st.markdown("### 🔍 Financial Analysis")
+    st.markdown("### 🔍 Enhanced Financial Analysis with Table Data")
     
     col1, col2, col3, col4 = st.columns(4)
     
@@ -460,45 +687,46 @@ if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
         if st.button("💰 Income Analysis", use_container_width=True):
             st.session_state.conversation_history.append({
                 "role": "user", 
-                "content": "What is the customer's monthly income and income sources?"
+                "content": "What is the customer's monthly income and income sources? Look for both text and tabular data."
             })
     
     with col2:
-        if st.button("📊 Financial Capacity", use_container_width=True):
+        if st.button("📊 Investment Analysis", use_container_width=True):
             st.session_state.conversation_history.append({
                 "role": "user", 
-                "content": "What is the customer's debt-to-income ratio and available financial capacity?"
+                "content": "Analyze the customer's investment portfolio from mutual fund statements and investment tables."
             })
     
     with col3:
         if st.button("⚖️ Risk Assessment", use_container_width=True):
             st.session_state.conversation_history.append({
                 "role": "user", 
-                "content": "Provide a comprehensive financial risk assessment and policy eligibility recommendation."
+                "content": "Provide a comprehensive financial risk assessment using all available text and tabular data."
             })
     
     with col4:
         if st.button("📋 Full Report", use_container_width=True):
             st.session_state.conversation_history.append({
                 "role": "user", 
-                "content": "Provide a complete comprehensive financial analysis report."
+                "content": "Provide a complete comprehensive financial analysis report using all text and table data."
             })
     
-    question = st.chat_input("Ask about financial underwriting analysis...")
+    question = st.chat_input("Ask about financial underwriting analysis (enhanced with table data)...")
     
     if question:
         st.session_state.conversation_history.append({"role": "user", "content": question})
     
     if st.session_state.conversation_history and st.session_state.conversation_history[-1]["role"] == "user":
-        with st.spinner("Analyzing financial documents..."):
+        with st.spinner("Analyzing financial documents with table data..."):
             latest_question = st.session_state.conversation_history[-1]["content"]
             guidelines_docs = guidelines_vector_store.similarity_search(latest_question, k=5)
-            customer_docs = customer_docs_vector_store.similarity_search(latest_question, k=10)
+            customer_docs = customer_docs_vector_store.similarity_search(latest_question, k=15)  # Increased k to capture more table data
             
             answer = analyze_customer_finances(latest_question, guidelines_docs, customer_docs)
             
             st.session_state.conversation_history.append({"role": "assistant", "content": answer})
     
+    # Display conversation history
     for message in st.session_state.conversation_history:
         if message["role"] == "user":
             st.chat_message("user").write(message["content"])
