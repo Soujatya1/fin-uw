@@ -19,7 +19,6 @@ st.set_page_config(
 
 st.title("💰 Financial Underwriting Assistant")
 
-# PII Shield Configuration
 class PIIShield:
     def __init__(self):
         self.pii_patterns = {
@@ -48,7 +47,6 @@ class PIIShield:
             for match in matches:
                 original = match.group()
                 
-                # Create consistent hash-based replacement
                 if original not in self.replacement_map:
                     hash_obj = hashlib.md5(original.encode())
                     hash_hex = hash_obj.hexdigest()[:8].upper()
@@ -83,10 +81,8 @@ class PIIShield:
                     break
         return pii_summary
 
-# Initialize PII Shield
 pii_shield = PIIShield()
 
-# Enhanced template with PII awareness
 template = """
 Hello, AI Financial Underwriting Assistant. You are a specialized AI agent with expertise in financial underwriting for insurance products. Your role is to analyze customer financial documents and assess their financial viability for insurance policies based on the provided underwriting guidelines.
 
@@ -271,9 +267,8 @@ with st.sidebar:
 col1, col2 = st.columns(2)
 
 with col1:
-    st.markdown("### 📋 Upload Financial Underwriting Guidelines")    
     guidelines_files = st.file_uploader(
-        "Choose Guidelines PDF files",
+        "📋 Upload Financial Underwriting Guidelines",
         type="pdf",
         accept_multiple_files=True,
         key="guidelines_uploader"
@@ -292,11 +287,9 @@ with col1:
             st.session_state.guidelines_loaded = True
             st.success(f"✅ {len(guidelines_files)} guideline document(s) processed successfully!")
 
-with col2:
-    st.markdown("### 💼 Upload Customer Financial Documents")
-    
+with col2:    
     customer_files = st.file_uploader(
-        "Choose Customer Financial Documents",
+        "💼 Upload Customer Financial Documents",
         type="pdf",
         accept_multiple_files=True,
         key="customer_uploader"
