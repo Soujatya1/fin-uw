@@ -57,7 +57,6 @@ class PIIShield:
         return anonymized_text
     
     def get_pii_summary(self) -> Dict[str, int]:
-        """Get summary of PII types found"""
         pii_summary = {}
         for original, anonymized in self.replacement_map.items():
             for pii_type, pattern in self.pii_patterns.items():
