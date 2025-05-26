@@ -157,7 +157,7 @@ Context from Guidelines: {guidelines_context}
 Customer Financial Documents: {customer_context}
 
 Provide a direct, specific answer with exact quotes from the source documents.
-"""r:
+
 """
 
 def determine_question_type(question: str) -> str:
