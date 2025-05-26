@@ -132,32 +132,16 @@ Answer:
 """
 
 specific_template = """
-You are a financial document analysis expert. Your task is to find and extract the EXACT information requested from the customer's financial documents.
+You are a financial underwriting expert. Answer the specific question asked based on the customer's financial documents and underwriting guidelines. Provide a direct, focused answer without unnecessary comprehensive analysis.
 
-SEARCH STRATEGY:
-1. Look for the EXACT term requested (e.g., "Investment Amount")
-2. Look for SIMILAR terms (e.g., "Invested Amount", "Total Investment", "Amount Invested")
-3. Look for NUMERICAL values associated with these terms
-4. Check different sections of the document (headers, tables, summary sections)
+IMPORTANT: All customer data has been anonymized for privacy protection.
 
-MUTUAL FUND SPECIFIC TERMS TO SEARCH FOR:
-- Investment Amount / Invested Amount
-- Purchase Amount / Purchase Value
-- Total Amount Invested
-- SIP Amount / Monthly SIP
-- Current Value / Market Value
-- Portfolio Value / Total Portfolio Value
-
-RESPONSE FORMAT:
-- If found: "The [requested information] is [exact value]. This information was found in: [quote exact text from document]"
-- If not found: "I could not locate '[requested information]' in the provided documents. I searched for related terms like [list searched terms]. The available financial information includes: [list what was actually found]"
+Be concise and specific. Only provide the information directly relevant to the question asked.
 
 Question: {question}
 Context from Guidelines: {guidelines_context}
 Customer Financial Documents: {customer_context}
-
-Provide a direct, specific answer with exact quotes from the source documents.
-
+Answer:
 """
 
 def determine_question_type(question: str) -> str:
