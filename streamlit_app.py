@@ -206,7 +206,7 @@ def extract_financial_info(documents):
         "basic pay", "gross salary", "net salary", "CTC",
         "ITR", "income tax return", "form 16", "tax",
         "mutual fund", "SIP", "investment", "portfolio",
-        "credit card", "investment amount", "units"
+        "credit card", "investment amount", "units",
         "bank statement", "account balance", "savings",
         "loan", "EMI", "debt", "liability", "credit",
         "bonus", "incentive", "allowance", "deduction"
@@ -257,12 +257,17 @@ def analyze_customer_finances(question, guidelines_docs, customer_docs):
     
     return response.content
 
+# Initialize session state
 if "conversation_history" not in st.session_state:
     st.session_state.conversation_history = []
 if "guidelines_loaded" not in st.session_state:
     st.session_state.guidelines_loaded = False
 if "customer_docs_loaded" not in st.session_state:
     st.session_state.customer_docs_loaded = False
+if "extracted_customer_content" not in st.session_state:
+    st.session_state.extracted_customer_content = []
+if "customer_file_names" not in st.session_state:
+    st.session_state.customer_file_names = []
 
 with st.sidebar:
     st.markdown("### 🛡️ PII Protection Settings")
@@ -291,6 +296,8 @@ with st.sidebar:
     
     if st.button("🗑️ Clear Analysis History"):
         st.session_state.conversation_history = []
+        st.session_state.extracted_customer_content = []
+        st.session_state.customer_file_names = []
         pii_shield.replacement_map.clear()
         st.rerun()
     
@@ -332,6 +339,8 @@ with col2:
     if customer_files:
         with st.spinner("Processing customer documents with PII protection..."):
             all_customer_docs = []
+            st.session_state.customer_file_names = [file.name for file in customer_files]
+            
             for file in customer_files:
                 file_path = upload_pdf(file, customer_docs_directory)
                 documents = load_pdf(file_path)
@@ -342,6 +351,9 @@ with col2:
                     all_customer_docs.extend(protected_documents)
                 else:
                     all_customer_docs.extend(chunked_documents)
+            
+            # Store extracted content for display
+            st.session_state.extracted_customer_content = all_customer_docs
             
             customer_docs_vector_store.add_documents(all_customer_docs)
             st.session_state.customer_docs_loaded = True
@@ -361,6 +373,7 @@ elif st.session_state.customer_docs_loaded:
 else:
     st.info("📤 Please upload both guidelines and customer financial documents to begin analysis.")
 
+# NEW SECTION: Display Extracted Customer Document Content
 if st.session_state.customer_docs_loaded and st.session_state.extracted_customer_content:
     st.markdown("---")
     st.markdown("### 📄 Extracted Customer Document Content")
