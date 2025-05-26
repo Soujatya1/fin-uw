@@ -361,6 +361,83 @@ elif st.session_state.customer_docs_loaded:
 else:
     st.info("📤 Please upload both guidelines and customer financial documents to begin analysis.")
 
+if st.session_state.customer_docs_loaded and st.session_state.extracted_customer_content:
+    st.markdown("---")
+    st.markdown("### 📄 Extracted Customer Document Content")
+    
+    # Create tabs for different views
+    tab1, tab2, tab3 = st.tabs(["📋 All Content", "💰 Financial Content Only", "📊 Document Summary"])
+    
+    with tab1:
+        st.markdown("#### Complete Extracted Content")
+        st.info(f"Showing content from {len(st.session_state.customer_file_names)} uploaded files: {', '.join(st.session_state.customer_file_names)}")
+        
+        with st.expander("🔍 View All Extracted Content", expanded=False):
+            for i, doc in enumerate(st.session_state.extracted_customer_content):
+                st.markdown(f"**Chunk {i+1}** (Source: {doc.metadata.get('source', 'Unknown')})")
+                st.text_area(
+                    f"Content {i+1}",
+                    value=doc.page_content,
+                    height=200,
+                    key=f"content_{i}",
+                    label_visibility="collapsed"
+                )
+                st.markdown("---")
+    
+    with tab2:
+        st.markdown("#### Financial Content Only")
+        financial_docs = extract_financial_info(st.session_state.extracted_customer_content)
+        
+        if financial_docs:
+            st.success(f"Found {len(financial_docs)} chunks with financial information")
+            
+            with st.expander("💰 View Financial Content", expanded=True):
+                for i, doc in enumerate(financial_docs):
+                    st.markdown(f"**Financial Chunk {i+1}** (Source: {doc.metadata.get('source', 'Unknown')})")
+                    st.text_area(
+                        f"Financial Content {i+1}",
+                        value=doc.page_content,
+                        height=150,
+                        key=f"financial_content_{i}",
+                        label_visibility="collapsed"
+                    )
+                    st.markdown("---")
+        else:
+            st.warning("No financial content detected in the uploaded documents.")
+    
+    with tab3:
+        st.markdown("#### Document Processing Summary")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("Total Files", len(st.session_state.customer_file_names))
+        
+        with col2:
+            st.metric("Total Chunks", len(st.session_state.extracted_customer_content))
+        
+        with col3:
+            financial_chunks = len(extract_financial_info(st.session_state.extracted_customer_content))
+            st.metric("Financial Chunks", financial_chunks)
+        
+        st.markdown("**Uploaded Files:**")
+        for i, filename in enumerate(st.session_state.customer_file_names, 1):
+            st.write(f"{i}. {filename}")
+        
+        if pii_shield.replacement_map:
+            st.markdown("**PII Protection Summary:**")
+            pii_summary = pii_shield.get_pii_summary()
+            for pii_type, count in pii_summary.items():
+                st.write(f"• {pii_type.replace('_', ' ').title()}: {count} instances anonymized")
+        
+        # Show content statistics
+        total_chars = sum(len(doc.page_content) for doc in st.session_state.extracted_customer_content)
+        avg_chunk_size = total_chars // len(st.session_state.extracted_customer_content) if st.session_state.extracted_customer_content else 0
+        
+        st.markdown("**Content Statistics:**")
+        st.write(f"• Total characters extracted: {total_chars:,}")
+        st.write(f"• Average chunk size: {avg_chunk_size} characters")
+
 if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
     st.markdown("---")
     st.markdown("### 🔍 Financial Analysis")
