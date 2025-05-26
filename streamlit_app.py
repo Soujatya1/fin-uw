@@ -72,10 +72,24 @@ Hello, AI Financial Underwriting Assistant. You are a specialized AI agent with 
 
 IMPORTANT: All customer data has been anonymized for privacy protection. Use anonymized identifiers in your analysis.
 
+CRITICAL INSTRUCTIONS:
+1. CAREFULLY READ through ALL the provided customer financial documents
+2. Extract SPECIFIC numerical values, amounts, and financial data mentioned in the documents
+3. When asked about specific values like "Investment Amount", look for exact matches and related terms
+4. If you cannot find specific information, clearly state what information is missing
+5. Always quote the exact text/numbers from the documents when available
+
+DOCUMENT ANALYSIS FOCUS:
+- Salary slips: Basic pay, gross salary, net salary, deductions, allowances
+- Mutual Fund statements: Investment amount, current value, NAV, units, SIP amounts, portfolio value
+- Bank statements: Account balance, transaction amounts, monthly credits/debits
+- Credit card statements: Credit limit, outstanding balance, payment history
+- ITR documents: Total income, tax paid, investments under 80C
+
 Your analysis should focus on:
 
 **Financial Document Analysis:**
-- Extract and analyze key financial information from salary slips, ITR documents, mutual fund statements, bank statements, etc.
+- Extract and analyze key financial information from salary slips, ITR documents, mutual fund statements, credit card statements and reports, bank statements, etc.
 - Calculate income stability, debt-to-income ratios, and financial capacity
 - Assess financial history and patterns
 
@@ -118,16 +132,32 @@ Answer:
 """
 
 specific_template = """
-You are a financial underwriting expert. Answer the specific question asked based on the customer's financial documents and underwriting guidelines. Provide a direct, focused answer without unnecessary comprehensive analysis.
+You are a financial document analysis expert. Your task is to find and extract the EXACT information requested from the customer's financial documents.
 
-IMPORTANT: All customer data has been anonymized for privacy protection.
+SEARCH STRATEGY:
+1. Look for the EXACT term requested (e.g., "Investment Amount")
+2. Look for SIMILAR terms (e.g., "Invested Amount", "Total Investment", "Amount Invested")
+3. Look for NUMERICAL values associated with these terms
+4. Check different sections of the document (headers, tables, summary sections)
 
-Be concise and specific. Only provide the information directly relevant to the question asked.
+MUTUAL FUND SPECIFIC TERMS TO SEARCH FOR:
+- Investment Amount / Invested Amount
+- Purchase Amount / Purchase Value
+- Total Amount Invested
+- SIP Amount / Monthly SIP
+- Current Value / Market Value
+- Portfolio Value / Total Portfolio Value
+
+RESPONSE FORMAT:
+- If found: "The [requested information] is [exact value]. This information was found in: [quote exact text from document]"
+- If not found: "I could not locate '[requested information]' in the provided documents. I searched for related terms like [list searched terms]. The available financial information includes: [list what was actually found]"
 
 Question: {question}
 Context from Guidelines: {guidelines_context}
 Customer Financial Documents: {customer_context}
-Answer:
+
+Provide a direct, specific answer with exact quotes from the source documents.
+"""r:
 """
 
 def determine_question_type(question: str) -> str:
@@ -193,6 +223,7 @@ def extract_financial_info(documents):
         "basic pay", "gross salary", "net salary", "CTC",
         "ITR", "income tax return", "form 16", "tax",
         "mutual fund", "SIP", "investment", "portfolio",
+        "credit card", "investment amount", "units"
         "bank statement", "account balance", "savings",
         "loan", "EMI", "debt", "liability", "credit",
         "bonus", "incentive", "allowance", "deduction"
