@@ -562,7 +562,7 @@ if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
                 "content": "Provide a complete comprehensive financial analysis report using all text and table data."
             })
     
-    question = st.chat_input("Ask about financial underwriting analysis (enhanced with table data)...")
+    question = st.chat_input("Please ask a question")
     
     if question:
         st.session_state.conversation_history.append({"role": "user", "content": question})
