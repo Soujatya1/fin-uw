@@ -17,7 +17,7 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("💰 Financial Underwriting Assistant with PII Shield 🛡️")
+st.title("💰 Financial Underwriting Assistant")
 
 # PII Shield Configuration
 class PIIShield:
