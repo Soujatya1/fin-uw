@@ -66,12 +66,10 @@ class PIIShield:
 pii_shield = PIIShield()
 
 def extract_tables_from_pdf(file_path):
-    """Enhanced PDF extraction with table parsing capability"""
     document_content = []
     
     with pdfplumber.open(file_path) as pdf:
         for page_num, page in enumerate(pdf.pages):
-            # Extract text content
             text = page.extract_text() or ""
             if text.strip():
                 document_content.append({
@@ -80,14 +78,12 @@ def extract_tables_from_pdf(file_path):
                     "type": "text"
                 })
             
-            # Extract tables
             tables = page.extract_tables()
             for table_num, table in enumerate(tables):
                 if table:
                     df = pd.DataFrame(table)
                     
                     if not df.empty:
-                        # Process headers
                         headers = []
                         if len(df.columns) > 0:
                             if not pd.isna(df.iloc[0]).all() and not all(x is None for x in df.iloc[0]):
@@ -97,7 +93,6 @@ def extract_tables_from_pdf(file_path):
                             else:
                                 headers = [f"Column_{i}" for i in range(len(df.columns))]
                         
-                        # Handle duplicate headers
                         unique_headers = []
                         header_counts = {}
                         
@@ -121,41 +116,34 @@ def extract_tables_from_pdf(file_path):
     return document_content
 
 def format_table_for_llm(df: pd.DataFrame, table_info: dict) -> str:
-    """Convert DataFrame to structured text format for LLM"""
     if df.empty:
         return f"Empty table on page {table_info['page']}"
     
-    # Create a structured representation
     table_text = f"\n--- TABLE {table_info['table_number']} (Page {table_info['page']}) ---\n"
     
-    # Add table in markdown format for better LLM understanding
     table_text += df.to_string(index=False, na_rep='') + "\n"
     
-    # Add key-value pairs for important financial data
     table_text += "\nKey Financial Data from this table:\n"
     for col in df.columns:
         non_null_values = df[col].dropna()
         if not non_null_values.empty:
-            # Check if column contains numerical data
             numeric_values = []
             for val in non_null_values:
                 if isinstance(val, (int, float)) or (isinstance(val, str) and any(char.isdigit() for char in str(val))):
                     numeric_values.append(str(val))
             
             if numeric_values:
-                table_text += f"- {col}: {', '.join(numeric_values[:5])}\n"  # Limit to first 5 values
+                table_text += f"- {col}: {', '.join(numeric_values[:5])}\n"
     
     table_text += "--- END TABLE ---\n"
     return table_text
 
 def load_pdf_with_tables(file_path):
-    """Load PDF and create documents with both text and table content"""
     document_content = extract_tables_from_pdf(file_path)
     documents = []
     
     for content in document_content:
         if content["type"] == "text":
-            # Create document from text content
             doc = Document(
                 page_content=content["content"],
                 metadata={
@@ -167,7 +155,6 @@ def load_pdf_with_tables(file_path):
             documents.append(doc)
             
         elif content["type"] == "table":
-            # Create document from table content
             table_text = format_table_for_llm(content["dataframe"], content)
             doc = Document(
                 page_content=table_text,
@@ -183,9 +170,8 @@ def load_pdf_with_tables(file_path):
     return documents
 
 def split_text(documents):
-    """Split documents into chunks, with special handling for tables"""
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1500,  # Increased chunk size for tables
+        chunk_size=1500,
         chunk_overlap=200,
         add_start_index=True
     )
@@ -193,17 +179,14 @@ def split_text(documents):
     chunked_docs = []
     for doc in documents:
         if doc.metadata.get("type") == "table":
-            # Don't split table documents to preserve structure
             chunked_docs.append(doc)
         else:
-            # Split text documents normally
             chunks = text_splitter.split_documents([doc])
             chunked_docs.extend(chunks)
     
     return chunked_docs
 
 def extract_financial_info(documents):
-    """Enhanced financial info extraction that considers both text and tables"""
     financial_keywords = [
         "salary", "income", "annual income", "monthly income", 
         "basic pay", "gross salary", "net salary", "CTC",
@@ -220,16 +203,13 @@ def extract_financial_info(documents):
     for doc in documents:
         content_lower = doc.page_content.lower()
         
-        # Always include table documents as they likely contain financial data
         if doc.metadata.get("type") == "table":
             relevant_chunks.append(doc)
-        # Check text documents for financial keywords
         elif any(keyword in content_lower for keyword in financial_keywords):
             relevant_chunks.append(doc)
     
     return relevant_chunks
 
-# Rest of the template and analysis code remains the same...
 comprehensive_template = """
 Hello, AI Financial Underwriting Assistant. You are a specialized AI agent with expertise in financial underwriting for insurance products. Your role is to analyze customer financial documents and assess their financial viability for insurance policies based on the provided underwriting guidelines.
 
@@ -335,14 +315,12 @@ def determine_question_type(question: str) -> str:
     
     return "specific"
 
-# Directory setup
 guidelines_directory = '.github/guidelines/'
 customer_docs_directory = '.github/customer_docs/'
 
 os.makedirs(guidelines_directory, exist_ok=True)
 os.makedirs(customer_docs_directory, exist_ok=True)
 
-# Initialize embeddings and vector stores
 embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 guidelines_vector_store = InMemoryVectorStore(embeddings)
 customer_docs_vector_store = InMemoryVectorStore(embeddings)
@@ -396,7 +374,6 @@ def analyze_customer_finances(question, guidelines_docs, customer_docs):
     
     return response.content
 
-# Initialize session state
 if "conversation_history" not in st.session_state:
     st.session_state.conversation_history = []
 if "guidelines_loaded" not in st.session_state:
@@ -406,7 +383,6 @@ if "customer_docs_loaded" not in st.session_state:
 if "table_stats" not in st.session_state:
     st.session_state.table_stats = {"total_tables": 0, "tables_by_page": {}}
 
-# Sidebar with PII protection settings
 with st.sidebar:
     st.markdown("### 🛡️ PII Protection Settings")
     st.markdown("""
@@ -441,7 +417,6 @@ with st.sidebar:
         pii_shield.replacement_map.clear()
         st.success("PII cache cleared")
 
-# Main interface
 col1, col2 = st.columns(2)
 
 with col1:
@@ -483,7 +458,6 @@ with col2:
                 file_path = upload_pdf(file, customer_docs_directory)
                 documents = load_pdf_with_tables(file_path)
                 
-                # Count tables for stats
                 for doc in documents:
                     if doc.metadata.get("type") == "table":
                         table_count += 1
@@ -498,7 +472,6 @@ with col2:
                 else:
                     all_customer_docs.extend(chunked_documents)
             
-            # Update table stats
             st.session_state.table_stats = {
                 "total_tables": table_count,
                 "tables_by_page": tables_by_page
@@ -516,7 +489,6 @@ with col2:
             
             st.success(success_msg)
 
-# Status indicators
 if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
     st.success("🎉 All documents loaded! Enhanced table extraction ready for financial analysis.")
 elif st.session_state.guidelines_loaded:
@@ -526,7 +498,6 @@ elif st.session_state.customer_docs_loaded:
 else:
     st.info("📤 Please upload both guidelines and customer financial documents to begin analysis.")
 
-# Analysis section
 if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
     st.markdown("---")
     st.markdown("### 🔍 Enhanced Financial Analysis with Table Data")
@@ -576,7 +547,6 @@ if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
             
             st.session_state.conversation_history.append({"role": "assistant", "content": answer})
     
-    # Display conversation history
     for message in st.session_state.conversation_history:
         if message["role"] == "user":
             st.chat_message("user").write(message["content"])
