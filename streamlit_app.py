@@ -8,7 +8,6 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain.embeddings import HuggingFaceEmbeddings
 import pandas as pd
 
-# Page configuration
 st.set_page_config(
     page_title="Financial Underwriting Assistant",
     page_icon="💰",
@@ -16,9 +15,7 @@ st.set_page_config(
 )
 
 st.title("💰 Financial Underwriting Assistant")
-st.subheader("Comprehensive Financial Analysis for Insurance Underwriting")
 
-# Financial underwriting specific template
 template = """
 Hello, AI Financial Underwriting Assistant. You are a specialized AI agent with expertise in financial underwriting for insurance products. Your role is to analyze customer financial documents and assess their financial viability for insurance policies based on the provided underwriting guidelines.
 
@@ -67,27 +64,22 @@ Customer Financial Documents: {customer_context}
 Answer:
 """
 
-# Directory setup
 guidelines_directory = '.github/guidelines/'
 customer_docs_directory = '.github/customer_docs/'
 
-# Create directories if they don't exist
 os.makedirs(guidelines_directory, exist_ok=True)
 os.makedirs(customer_docs_directory, exist_ok=True)
 
-# Initialize embeddings and vector stores
 embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 guidelines_vector_store = InMemoryVectorStore(embeddings)
 customer_docs_vector_store = InMemoryVectorStore(embeddings)
 
-# Initialize the model
 model = ChatGroq(
     groq_api_key="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", 
     model_name="meta-llama/llama-4-maverick-17b-128e-instruct", 
     temperature=0.3
 )
 
-# Helper functions
 def upload_pdf(file, directory):
     file_path = directory + file.name
     with open(file_path, "wb") as f:
@@ -128,10 +120,8 @@ def extract_financial_info(documents):
     return relevant_chunks
 
 def analyze_customer_finances(question, guidelines_docs, customer_docs):
-    # Prepare contexts
     guidelines_context = "\n\n".join([doc.page_content for doc in guidelines_docs])
     
-    # Extract and focus on financial information from customer documents
     financial_docs = extract_financial_info(customer_docs)
     customer_context = "\n\n".join([doc.page_content for doc in financial_docs])
     
@@ -146,7 +136,6 @@ def analyze_customer_finances(question, guidelines_docs, customer_docs):
     
     return response.content
 
-# Initialize session state
 if "conversation_history" not in st.session_state:
     st.session_state.conversation_history = []
 if "guidelines_loaded" not in st.session_state:
@@ -154,13 +143,10 @@ if "guidelines_loaded" not in st.session_state:
 if "customer_docs_loaded" not in st.session_state:
     st.session_state.customer_docs_loaded = False
 
-# Create two columns for file uploads
 col1, col2 = st.columns(2)
 
 with col1:
-    st.markdown("### 📋 Upload Financial Underwriting Guidelines")
-    st.markdown("*Upload your company's financial underwriting guidelines (PDF format)*")
-    
+    st.markdown("### 📋 Upload Financial Underwriting Guidelines")    
     guidelines_files = st.file_uploader(
         "Choose Guidelines PDF files",
         type="pdf",
@@ -207,22 +193,19 @@ with col2:
             st.session_state.customer_docs_loaded = True
             st.success(f"✅ {len(customer_files)} customer document(s) processed successfully!")
 
-# Document upload status
 if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
     st.success("🎉 All documents loaded! Ready for financial analysis.")
 elif st.session_state.guidelines_loaded:
-    st.warning("⚠️ Guidelines loaded. Please upload customer financial documents.")
+    st.warning("Guidelines loaded. Please upload customer financial documents.")
 elif st.session_state.customer_docs_loaded:
-    st.warning("⚠️ Customer documents loaded. Please upload underwriting guidelines.")
+    st.warning("Customer documents loaded. Please upload underwriting guidelines.")
 else:
     st.info("📤 Please upload both guidelines and customer financial documents to begin analysis.")
 
-# Financial Analysis Section
 if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
     st.markdown("---")
     st.markdown("### 🔍 Financial Analysis")
     
-    # Quick analysis buttons
     col1, col2, col3 = st.columns(3)
     
     with col1:
@@ -246,64 +229,28 @@ if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
                 "content": "Provide a comprehensive financial risk assessment and policy eligibility recommendation."
             })
     
-    # Chat interface
     question = st.chat_input("Ask about financial underwriting analysis...")
     
     if question:
         st.session_state.conversation_history.append({"role": "user", "content": question})
     
-    # Process any new questions
     if st.session_state.conversation_history and st.session_state.conversation_history[-1]["role"] == "user":
         with st.spinner("Analyzing financial documents..."):
-            # Retrieve relevant documents
             latest_question = st.session_state.conversation_history[-1]["content"]
             guidelines_docs = guidelines_vector_store.similarity_search(latest_question, k=5)
             customer_docs = customer_docs_vector_store.similarity_search(latest_question, k=10)
             
-            # Generate analysis
             answer = analyze_customer_finances(latest_question, guidelines_docs, customer_docs)
             
             st.session_state.conversation_history.append({"role": "assistant", "content": answer})
     
-    # Display conversation history
     for message in st.session_state.conversation_history:
         if message["role"] == "user":
             st.chat_message("user").write(message["content"])
         elif message["role"] == "assistant":
             st.chat_message("assistant").write(message["content"])
 
-# Sidebar with financial document types
 with st.sidebar:
-    st.markdown("### 📄 Supported Financial Documents")
-    st.markdown("""
-    **Income Documents:**
-    - Salary Slips (last 3-6 months)
-    - Form 16 / ITR Documents
-    - Employment Letters
-    - Business Income Statements
-    
-    **Investment Documents:**
-    - Mutual Fund Statements
-    - Share Portfolio
-    - Fixed Deposits
-    - Insurance Policies
-    
-    **Banking Documents:**
-    - Bank Statements (6-12 months)
-    - Account Balance Certificates
-    - Loan Statements
-    - Credit Card Statements
-    
-    **Other Financial Records:**
-    - Property Documents
-    - Rental Income Proof
-    - Financial Audit Reports
-    """)
-    
     if st.button("🗑️ Clear Analysis History"):
         st.session_state.conversation_history = []
         st.rerun()
-
-# Footer
-st.markdown("---")
-st.markdown("*Financial Underwriting Assistant - Ensuring comprehensive financial risk assessment for insurance underwriting*")
