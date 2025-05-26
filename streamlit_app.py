@@ -22,7 +22,7 @@ st.title("💰 Financial Underwriting Assistant")
 class PIIShield:
     def __init__(self):
         self.pii_patterns = {
-            'pan_card': r'\b[A-Z]{5}[0-9]{4}[A-Z]{1}\b',
+            'pan_card': r'\b[A-Z]{5}[-\s]?[0-9]{4}[-\s]?[A-Z]\b',
             'aadhaar': r'\b\d{4}\s?\d{4}\s?\d{4}\b',
             'account_number': r'\b\d{9,18}\b',
             'phone': r'\b(?:\+91[-.\s]?)?[6-9]\d{9}\b',
