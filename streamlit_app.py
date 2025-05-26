@@ -404,10 +404,6 @@ if "guidelines_loaded" not in st.session_state:
     st.session_state.guidelines_loaded = False
 if "customer_docs_loaded" not in st.session_state:
     st.session_state.customer_docs_loaded = False
-if "extracted_customer_content" not in st.session_state:
-    st.session_state.extracted_customer_content = []
-if "customer_file_names" not in st.session_state:
-    st.session_state.customer_file_names = []
 if "table_stats" not in st.session_state:
     st.session_state.table_stats = {"total_tables": 0, "tables_by_page": {}}
 
@@ -438,8 +434,6 @@ with st.sidebar:
     
     if st.button("🗑️ Clear Analysis History"):
         st.session_state.conversation_history = []
-        st.session_state.extracted_customer_content = []
-        st.session_state.customer_file_names = []
         st.session_state.table_stats = {"total_tables": 0, "tables_by_page": {}}
         pii_shield.replacement_map.clear()
         st.rerun()
@@ -483,7 +477,6 @@ with col2:
     if customer_files:
         with st.spinner("Processing customer documents with enhanced table extraction..."):
             all_customer_docs = []
-            st.session_state.customer_file_names = [file.name for file in customer_files]
             table_count = 0
             tables_by_page = {}
             
@@ -512,9 +505,6 @@ with col2:
                 "tables_by_page": tables_by_page
             }
             
-            # Store extracted content for display
-            st.session_state.extracted_customer_content = all_customer_docs
-            
             customer_docs_vector_store.add_documents(all_customer_docs)
             st.session_state.customer_docs_loaded = True
             
@@ -536,135 +526,6 @@ elif st.session_state.customer_docs_loaded:
     st.warning("Customer documents loaded. Please upload underwriting guidelines.")
 else:
     st.info("📤 Please upload both guidelines and customer financial documents to begin analysis.")
-
-# Enhanced document content display section
-if st.session_state.customer_docs_loaded and st.session_state.extracted_customer_content:
-    st.markdown("---")
-    st.markdown("### 📄 Extracted Document Content with Table Data")
-    
-    # Create tabs for different views
-    tab1, tab2, tab3, tab4 = st.tabs(["📋 All Content", "💰 Financial Content", "📊 Tables Only", "📈 Document Summary"])
-    
-    with tab1:
-        st.markdown("#### Complete Extracted Content (Text + Tables)")
-        st.info(f"Showing content from {len(st.session_state.customer_file_names)} uploaded files: {', '.join(st.session_state.customer_file_names)}")
-        
-        with st.expander("🔍 View All Extracted Content", expanded=False):
-            for i, doc in enumerate(st.session_state.extracted_customer_content):
-                doc_type = doc.metadata.get('type', 'text')
-                page = doc.metadata.get('page', 'Unknown')
-                table_num = doc.metadata.get('table_number', '')
-                
-                if doc_type == 'table':
-                    st.markdown(f"**📊 Table {table_num}** (Page {page})")
-                else:
-                    st.markdown(f"**📝 Text Content** (Page {page})")
-                
-                st.text_area(
-                    f"Content {i+1}",
-                    value=doc.page_content,
-                    height=200,
-                    key=f"content_{i}",
-                    label_visibility="collapsed"
-                )
-                st.markdown("---")
-    
-    with tab2:
-        st.markdown("#### Financial Content (Text + Tables)")
-        financial_docs = extract_financial_info(st.session_state.extracted_customer_content)
-        
-        if financial_docs:
-            text_count = sum(1 for doc in financial_docs if doc.metadata.get('type') != 'table')
-            table_count = sum(1 for doc in financial_docs if doc.metadata.get('type') == 'table')
-            
-            st.success(f"Found {len(financial_docs)} financial chunks ({text_count} text, {table_count} tables)")
-            
-            with st.expander("💰 View Financial Content", expanded=True):
-                for i, doc in enumerate(financial_docs):
-                    doc_type = doc.metadata.get('type', 'text')
-                    page = doc.metadata.get('page', 'Unknown')
-                    
-                    if doc_type == 'table':
-                        table_num = doc.metadata.get('table_number', '')
-                        st.markdown(f"**📊 Financial Table {table_num}** (Page {page})")
-                    else:
-                        st.markdown(f"**💰 Financial Text** (Page {page})")
-                    
-                    st.text_area(
-                        f"Financial Content {i+1}",
-                        value=doc.page_content,
-                        height=150,
-                        key=f"financial_content_{i}",
-                        label_visibility="collapsed"
-                    )
-                    st.markdown("---")
-        else:
-            st.warning("No financial content detected in the uploaded documents.")
-    
-    with tab3:
-        st.markdown("#### Tables Only")
-        table_docs = [doc for doc in st.session_state.extracted_customer_content if doc.metadata.get('type') == 'table']
-        
-        if table_docs:
-            st.success(f"Found {len(table_docs)} tables across all documents")
-            
-            with st.expander("📊 View All Tables", expanded=True):
-                for i, doc in enumerate(table_docs):
-                    page = doc.metadata.get('page', 'Unknown')
-                    table_num = doc.metadata.get('table_number', i+1)
-                    
-                    st.markdown(f"**📊 Table {table_num}** (Page {page})")
-                    st.text_area(
-                        f"Table {i+1}",
-                        value=doc.page_content,
-                        height=200,
-                        key=f"table_content_{i}",
-                        label_visibility="collapsed"
-                    )
-                    st.markdown("---")
-        else:
-            st.info("No tables detected in the uploaded documents.")
-    
-    with tab4:
-        st.markdown("#### Enhanced Document Processing Summary")
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("Total Files", len(st.session_state.customer_file_names))
-        
-        with col2:
-            st.metric("Total Chunks", len(st.session_state.extracted_customer_content))
-        
-        with col3:
-            financial_chunks = len(extract_financial_info(st.session_state.extracted_customer_content))
-            st.metric("Financial Chunks", financial_chunks)
-        
-        with col4:
-            st.metric("Tables Extracted", st.session_state.table_stats["total_tables"])
-        
-        st.markdown("**Uploaded Files:**")
-        for i, filename in enumerate(st.session_state.customer_file_names, 1):
-            st.write(f"{i}. {filename}")
-        
-        # Content type breakdown
-        text_docs = sum(1 for doc in st.session_state.extracted_customer_content if doc.metadata.get('type') != 'table')
-        table_docs = sum(1 for doc in st.session_state.extracted_customer_content if doc.metadata.get('type') == 'table')
-        
-        st.markdown("**Content Type Breakdown:**")
-        st.write(f"• Text chunks: {text_docs}")
-        st.write(f"• Table chunks: {table_docs}")
-        
-        if st.session_state.table_stats["tables_by_page"]:
-            st.markdown("**Tables by Page:**")
-            for page, count in sorted(st.session_state.table_stats["tables_by_page"].items()):
-                st.write(f"• Page {page}: {count} tables")
-        
-        if pii_shield.replacement_map:
-            st.markdown("**PII Protection Summary:**")
-            pii_summary = pii_shield.get_pii_summary()
-            for pii_type, count in pii_summary.items():
-                st.write(f"• {pii_type.replace('_', ' ').title()}: {count} instances anonymized")
 
 # Analysis section
 if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
