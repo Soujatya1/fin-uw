@@ -68,7 +68,8 @@ class PIIShield:
 
 pii_shield = PIIShield()
 
-template = """
+# Comprehensive template for detailed reports
+comprehensive_template = """
 Hello, AI Financial Underwriting Assistant. You are a specialized AI agent with expertise in financial underwriting for insurance products. Your role is to analyze customer financial documents and assess their financial viability for insurance policies based on the provided underwriting guidelines.
 
 IMPORTANT: All customer data has been anonymized for privacy protection. Use anonymized identifiers in your analysis.
@@ -117,6 +118,46 @@ Context from Guidelines: {guidelines_context}
 Customer Financial Documents: {customer_context}
 Answer:
 """
+
+# Specific template for targeted questions
+specific_template = """
+You are a financial underwriting expert. Answer the specific question asked based on the customer's financial documents and underwriting guidelines. Provide a direct, focused answer without unnecessary comprehensive analysis.
+
+IMPORTANT: All customer data has been anonymized for privacy protection.
+
+Be concise and specific. Only provide the information directly relevant to the question asked.
+
+Question: {question}
+Context from Guidelines: {guidelines_context}
+Customer Financial Documents: {customer_context}
+Answer:
+"""
+
+def determine_question_type(question: str) -> str:
+    """Determine if the question requires comprehensive analysis or specific answer"""
+    comprehensive_keywords = [
+        "complete analysis", "full report", "comprehensive", "detailed analysis",
+        "overall assessment", "complete evaluation", "full evaluation",
+        "risk assessment", "financial capacity", "policy eligibility"
+    ]
+    
+    question_lower = question.lower()
+    
+    # Check if it's asking for comprehensive analysis
+    if any(keyword in question_lower for keyword in comprehensive_keywords):
+        return "comprehensive"
+    
+    # Check if it's a specific question
+    specific_indicators = [
+        "what is", "how much", "when", "where", "which", "who",
+        "calculate", "show me", "find", "extract", "tell me about"
+    ]
+    
+    if any(indicator in question_lower for indicator in specific_indicators):
+        return "specific"
+    
+    # Default to specific for most questions
+    return "specific"
 
 guidelines_directory = '.github/guidelines/'
 customer_docs_directory = '.github/customer_docs/'
@@ -195,6 +236,14 @@ def analyze_customer_finances(question, guidelines_docs, customer_docs):
     financial_docs = extract_financial_info(customer_docs)
     customer_context = "\n\n".join([doc.page_content for doc in financial_docs])
     
+    # Determine which template to use based on question type
+    question_type = determine_question_type(question)
+    
+    if question_type == "comprehensive":
+        template = comprehensive_template
+    else:
+        template = specific_template
+    
     prompt = ChatPromptTemplate.from_template(template)
     chain = prompt | model
     
@@ -237,6 +286,16 @@ with st.sidebar:
                 st.write(f"• {pii_type.replace('_', ' ').title()}: {count} instances")
     else:
         st.warning("⚠️ PII Shield Disabled - Use with caution!")
+    
+    st.markdown("---")
+    
+    # Response Type Selection
+    st.markdown("### 📝 Response Type")
+    response_type = st.radio(
+        "Choose default response style:",
+        ["Smart Auto-Detection", "Always Specific", "Always Comprehensive"],
+        help="Smart mode automatically detects question type. Override for consistent response style."
+    )
     
     st.markdown("---")
     
@@ -316,20 +375,20 @@ if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
     st.markdown("---")
     st.markdown("### 🔍 Financial Analysis")
     
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         if st.button("💰 Income Analysis", use_container_width=True):
             st.session_state.conversation_history.append({
                 "role": "user", 
-                "content": "Analyze the customer's income sources, stability, and adequacy for insurance premium payments."
+                "content": "What is the customer's monthly income and income sources?"
             })
     
     with col2:
         if st.button("📊 Financial Capacity", use_container_width=True):
             st.session_state.conversation_history.append({
                 "role": "user", 
-                "content": "Assess the customer's overall financial capacity and recommend appropriate coverage amount."
+                "content": "What is the customer's debt-to-income ratio and available financial capacity?"
             })
     
     with col3:
@@ -339,9 +398,26 @@ if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
                 "content": "Provide a comprehensive financial risk assessment and policy eligibility recommendation."
             })
     
+    with col4:
+        if st.button("📋 Full Report", use_container_width=True):
+            st.session_state.conversation_history.append({
+                "role": "user", 
+                "content": "Provide a complete comprehensive financial analysis report."
+            })
+    
     question = st.chat_input("Ask about financial underwriting analysis...")
     
     if question:
+        # Override question type based on sidebar selection
+        if response_type == "Always Specific":
+            # Force specific response by modifying the question processing
+            original_determine = determine_question_type
+            determine_question_type = lambda x: "specific"
+        elif response_type == "Always Comprehensive":
+            # Force comprehensive response
+            original_determine = determine_question_type
+            determine_question_type = lambda x: "comprehensive"
+        
         st.session_state.conversation_history.append({"role": "user", "content": question})
     
     if st.session_state.conversation_history and st.session_state.conversation_history[-1]["role"] == "user":
