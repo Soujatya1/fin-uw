@@ -237,7 +237,7 @@ def analyze_customer_finances(question, guidelines_docs, customer_docs):
     financial_docs = extract_financial_info(customer_docs)
     customer_context = "\n\n".join([doc.page_content for doc in financial_docs])
     
-    # Determine which template to use based on question type
+    # Determine which template to use based on question type (Smart Auto-Detection)
     question_type = determine_question_type(question)
     
     if question_type == "comprehensive":
@@ -287,16 +287,6 @@ with st.sidebar:
                 st.write(f"• {pii_type.replace('_', ' ').title()}: {count} instances")
     else:
         st.warning("⚠️ PII Shield Disabled - Use with caution!")
-    
-    st.markdown("---")
-    
-    # Response Type Selection
-    st.markdown("### 📝 Response Type")
-    response_type = st.radio(
-        "Choose default response style:",
-        ["Smart Auto-Detection", "Always Specific", "Always Comprehensive"],
-        help="Smart mode automatically detects question type. Override for consistent response style."
-    )
     
     st.markdown("---")
     
@@ -409,16 +399,6 @@ if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
     question = st.chat_input("Ask about financial underwriting analysis...")
     
     if question:
-        # Override question type based on sidebar selection
-        if response_type == "Always Specific":
-            # Force specific response by modifying the question processing
-            original_determine = determine_question_type
-            determine_question_type = lambda x: "specific"
-        elif response_type == "Always Comprehensive":
-            # Force comprehensive response
-            original_determine = determine_question_type
-            determine_question_type = lambda x: "comprehensive"
-        
         st.session_state.conversation_history.append({"role": "user", "content": question})
     
     if st.session_state.conversation_history and st.session_state.conversation_history[-1]["role"] == "user":
