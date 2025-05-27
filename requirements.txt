@@ -6,3 +6,6 @@ pdfplumber
 streamlit
 sentence_transformers
 pandas
+google-cloud-vision
+pdf2image
+Pillow
