@@ -415,8 +415,225 @@ def load_pdf_with_tables_and_ocr(file_path):
     
     return documents
 
-# Rest of your existing code (split_text, extract_financial_info, templates, etc.) remains the same...
-# [Include all the remaining functions from your original code]
+def split_text(documents):
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1500,
+        chunk_overlap=200,
+        add_start_index=True
+    )
+    
+    chunked_docs = []
+    for doc in documents:
+        if doc.metadata.get("type") == "table":
+            chunked_docs.append(doc)
+        else:
+            chunks = text_splitter.split_documents([doc])
+            chunked_docs.extend(chunks)
+    
+    return chunked_docs
+
+def extract_financial_info(documents):
+    financial_keywords = [
+        "salary", "income", "annual income", "monthly income", 
+        "basic pay", "gross salary", "net salary", "CTC",
+        "ITR", "income tax return", "form 16", "tax",
+        "mutual fund", "SIP", "investment", "portfolio",
+        "credit card", "investment amount", "units", "NAV",
+        "bank statement", "account balance", "savings",
+        "loan", "EMI", "debt", "liability", "credit",
+        "bonus", "incentive", "allowance", "deduction",
+        "amount", "balance", "value", "total", "sum"
+    ]
+    
+    relevant_chunks = []
+    for doc in documents:
+        content_lower = doc.page_content.lower()
+        
+        if doc.metadata.get("type") == "table":
+            relevant_chunks.append(doc)
+        elif any(keyword in content_lower for keyword in financial_keywords):
+            relevant_chunks.append(doc)
+    
+    return relevant_chunks
+
+comprehensive_template = """
+Hello, AI Financial Underwriting Assistant. You are a specialized AI agent with expertise in financial underwriting for insurance products. Your role is to analyze customer financial documents and assess their financial viability for insurance policies based on the provided underwriting guidelines.
+
+IMPORTANT: All customer data has been anonymized for privacy protection. Use anonymized identifiers in your analysis.
+
+DOCUMENT FORMAT NOTICE: The customer documents contain both text content and structured TABLE data. Tables are clearly marked with "--- TABLE X (Page Y) ---" headers. Pay special attention to tabular data as it often contains key financial figures.
+
+CRITICAL INSTRUCTIONS:
+1. CAREFULLY READ through ALL the provided customer financial documents including both text and tables
+2. Extract SPECIFIC numerical values, amounts, and financial data mentioned in the documents
+3. When analyzing tables, look for columns with financial data like amounts, balances, dates, etc.
+4. When asked about specific values like "Investment Amount", look for exact matches in both text and table format
+5. If you cannot find specific information, clearly state what information is missing
+6. Always quote the exact text/numbers from the documents when available
+7. For tabular data, reference the table number and page for traceability
+
+DOCUMENT ANALYSIS FOCUS:
+- Salary slips: Basic pay, gross salary, net salary, deductions, allowances (often in tabular format)
+- Mutual Fund statements: Investment amount, current value, NAV, units, SIP amounts, portfolio value (usually tabular)
+- Bank statements: Account balance, transaction amounts, monthly credits/debits (tabular transaction data)
+- Credit card statements: Credit limit, outstanding balance, payment history (tabular)
+- ITR documents: Total income, tax paid, investments under 80C (may include tabular schedules)
+
+Your analysis should focus on:
+
+**Financial Document Analysis:**
+- Extract and analyze key financial information from salary slips, ITR documents, mutual fund statements, credit card statements and reports, bank statements, etc.
+- Pay special attention to tabular data which often contains precise financial figures
+- Calculate income stability, debt-to-income ratios, and financial capacity
+- Assess financial history and patterns
+
+**Risk Assessment Parameters:**
+- Annual Income and Income Stability
+- Employment Status and Duration
+- Debt Obligations and Financial Commitments
+- Investment Portfolio and Assets
+- Financial History and Credit Profile
+- Premium Affordability Analysis
+
+**Financial Viability Determination:**
+- Determine if the customer can afford the proposed insurance premium
+- Assess long-term financial sustainability
+- Calculate recommended coverage amounts based on financial capacity
+- Identify any financial red flags or concerns
+
+**Detailed Financial Report:**
+Create a comprehensive tabular analysis covering:
+| Parameter | Customer Value | Source (Text/Table Page) | Risk Assessment | Comments |
+|-----------|---------------|------------------------|-----------------|----------|
+
+**Financial Scoring:**
+Provide scores in the following format:
+- Income Stability Score: (0-100)
+- Debt Management Score: (0-100)
+- Premium Affordability Score: (0-100)
+- Overall Financial Risk Score: High Risk (0-30), Medium Risk (31-60), Low Risk (61-100)
+
+**Recommendation:**
+- Policy Eligibility: Approved/Conditional/Declined
+- Recommended Coverage Amount
+- Premium Payment Frequency Recommendation
+- Any additional financial requirements or conditions
+
+Question: {question}
+Context from Guidelines: {guidelines_context}
+Customer Financial Documents: {customer_context}
+Answer:
+"""
+
+specific_template = """
+You are a financial underwriting expert. Answer the specific question asked based on the customer's financial documents and underwriting guidelines. 
+
+IMPORTANT: The documents contain both TEXT and TABLE data. Tables are marked with "--- TABLE X (Page Y) ---" headers. Look for specific values in both formats.
+
+CRITICAL: Please search carefully in both text content and tabular data. Financial documents often have key information in table format.
+
+Be concise and specific. Only provide the information directly relevant to the question asked. If you find the information in a table, mention the table number and page.
+
+Question: {question}
+Customer Financial Documents: {customer_context}
+Answer:
+"""
+
+def determine_question_type(question: str) -> str:
+    comprehensive_keywords = [
+        "complete analysis", "full report", "comprehensive", "detailed analysis",
+        "overall assessment", "complete evaluation", "full evaluation",
+        "risk assessment", "financial capacity", "policy eligibility"
+    ]
+    
+    question_lower = question.lower()
+    
+    if any(keyword in question_lower for keyword in comprehensive_keywords):
+        return "comprehensive"
+    
+    specific_indicators = [
+        "what is", "how much", "when", "where", "which", "who",
+        "calculate", "show me", "find", "extract", "tell me about"
+    ]
+    
+    if any(indicator in question_lower for indicator in specific_indicators):
+        return "specific"
+    
+    return "specific"
+
+# Directory setup
+guidelines_directory = '.github/guidelines/'
+customer_docs_directory = '.github/customer_docs/'
+
+os.makedirs(guidelines_directory, exist_ok=True)
+os.makedirs(customer_docs_directory, exist_ok=True)
+
+# Initialize components
+embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+guidelines_vector_store = InMemoryVectorStore(embeddings)
+customer_docs_vector_store = InMemoryVectorStore(embeddings)
+
+model = ChatGroq(
+    groq_api_key="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", 
+    model_name="meta-llama/llama-4-scout-17b-16e-instruct", 
+    temperature=0.3
+)
+
+def upload_pdf(file, directory):
+    """Upload PDF file to specified directory"""
+    file_path = directory + file.name
+    with open(file_path, "wb") as f:
+        f.write(file.getbuffer())
+    return file_path
+
+def process_documents_with_pii_shield(documents):
+    """Process documents through PII anonymization"""
+    protected_docs = []
+    for doc in documents:
+        anonymized_content = pii_shield.anonymize_text(doc.page_content)
+        
+        protected_doc = Document(
+            page_content=anonymized_content,
+            metadata=doc.metadata
+        )
+        protected_docs.append(protected_doc)
+    
+    return protected_docs
+
+def analyze_customer_finances(question, guidelines_docs, customer_docs):
+    """Analyze customer finances using LLM"""
+    guidelines_context = "\n\n".join([doc.page_content for doc in guidelines_docs])
+    
+    financial_docs = extract_financial_info(customer_docs)
+    customer_context = "\n\n".join([doc.page_content for doc in financial_docs])
+    
+    question_type = determine_question_type(question)
+    
+    if question_type == "comprehensive":
+        template = comprehensive_template
+    else:
+        template = specific_template
+    
+    prompt = ChatPromptTemplate.from_template(template)
+    chain = prompt | model
+    
+    response = chain.invoke({
+        "question": question,
+        "guidelines_context": guidelines_context,
+        "customer_context": customer_context
+    })
+    
+    return response.content
+
+# Initialize session state
+if "conversation_history" not in st.session_state:
+    st.session_state.conversation_history = []
+if "guidelines_loaded" not in st.session_state:
+    st.session_state.guidelines_loaded = False
+if "customer_docs_loaded" not in st.session_state:
+    st.session_state.customer_docs_loaded = False
+if "table_stats" not in st.session_state:
+    st.session_state.table_stats = {"total_tables": 0, "tables_by_page": {}}
 
 # Sidebar configuration with OCR setup
 with st.sidebar:
@@ -474,17 +691,38 @@ with st.sidebar:
     
     if not vision_processor or not vision_processor.ocr_available:
         st.warning("⚠️ OCR not available. Scanned documents won't be processed.")
-        st.markdown("""
-        **To enable OCR:**
-        1. Create a Google Cloud Project
-        2. Enable Vision API
-        3. Create service account or API key
-        4. Upload credentials above
-        """)
+        st.markdown("### 🛡️ PII Protection Settings")
+    st.markdown("""
+                ### 🔒 Privacy & Security Notice
+                - **PII Protection**: Personal identifiable information is automatically anonymized using hash-based replacement
+                - **Data Retention**: Document data is stored in memory only and cleared when the session ends
+                - **Secure Processing**: All financial analysis is performed on anonymized data
+                - **Table Extraction**: Enhanced parsing preserves tabular financial data structure
+                - **Compliance**: Designed to help maintain privacy standards for financial document processing""")
     
-    st.markdown("---")
-    st.markdown("### 🛡️ PII Protection Settings")
-    # [Rest of your PII settings code...]
+    pii_enabled = st.toggle("Enable PII Shield", value=True, help="Automatically anonymize personal information")
+    pii_shield.anonymization_enabled = pii_enabled
+    
+    if pii_enabled:
+        st.success("🛡️ PII Shield Active")
+        
+        if pii_shield.replacement_map:
+            st.markdown("#### PII Detection Summary")
+            pii_summary = pii_shield.get_pii_summary()
+            for pii_type, count in pii_summary.items():
+                st.write(f"• {pii_type.replace('_', ' ').title()}: {count} instances")
+    else:
+        st.warning("⚠️ PII Shield Disabled - Use with caution!")
+    
+    if st.button("🗑️ Clear Analysis History"):
+        st.session_state.conversation_history = []
+        st.session_state.table_stats = {"total_tables": 0, "tables_by_page": {}}
+        pii_shield.replacement_map.clear()
+        st.rerun()
+    
+    if st.button("🧹 Clear PII Cache"):
+        pii_shield.replacement_map.clear()
+        st.success("PII cache cleared")
 
 # Main document processing section
 col1, col2 = st.columns(2)
@@ -571,4 +809,69 @@ with col2:
             
             st.success(success_msg)
 
-# [Include the rest of your chat interface and analysis code...]
+# Status display
+if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
+    st.success("🎉 All documents loaded! Enhanced OCR and table extraction ready for financial analysis.")
+elif st.session_state.guidelines_loaded:
+    st.warning("Guidelines loaded. Please upload customer financial documents.")
+elif st.session_state.customer_docs_loaded:
+    st.warning("Customer documents loaded. Please upload underwriting guidelines.")
+else:
+    st.info("📤 Please upload both guidelines and customer financial documents to begin analysis.")
+
+# Chat interface and analysis
+if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
+    st.markdown("---")
+    st.markdown("### 🔍 Enhanced Financial Analysis with OCR & Table Data")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        if st.button("💰 Income Analysis", use_container_width=True):
+            st.session_state.conversation_history.append({
+                "role": "user", 
+                "content": "What is the customer's monthly income and income sources? Look for both text and tabular data."
+            })
+    
+    with col2:
+        if st.button("📊 Investment Analysis", use_container_width=True):
+            st.session_state.conversation_history.append({
+                "role": "user", 
+                "content": "Analyze the customer's investment portfolio from mutual fund statements and investment tables."
+            })
+    
+    with col3:
+        if st.button("⚖️ Risk Assessment", use_container_width=True):
+            st.session_state.conversation_history.append({
+                "role": "user", 
+                "content": "Provide a comprehensive financial risk assessment using all available text and tabular data."
+            })
+    
+    with col4:
+        if st.button("📋 Full Report", use_container_width=True):
+            st.session_state.conversation_history.append({
+                "role": "user", 
+                "content": "Provide a complete comprehensive financial analysis report using all text and table data."
+            })
+    
+    question = st.chat_input("Please ask a question")
+    
+    if question:
+        st.session_state.conversation_history.append({"role": "user", "content": question})
+    
+    if st.session_state.conversation_history and st.session_state.conversation_history[-1]["role"] == "user":
+        with st.spinner("Analyzing financial documents with OCR and table data..."):
+            latest_question = st.session_state.conversation_history[-1]["content"]
+            guidelines_docs = guidelines_vector_store.similarity_search(latest_question, k=5)
+            customer_docs = customer_docs_vector_store.similarity_search(latest_question, k=15)  # Increased k to capture more table data
+            
+            answer = analyze_customer_finances(latest_question, guidelines_docs, customer_docs)
+            
+            st.session_state.conversation_history.append({"role": "assistant", "content": answer})
+    
+    # Display conversation history
+    for message in st.session_state.conversation_history:
+        if message["role"] == "user":
+            st.chat_message("user").write(message["content"])
+        elif message["role"] == "assistant":
+            st.chat_message("assistant").write(message["content"])
