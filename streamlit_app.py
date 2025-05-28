@@ -20,6 +20,11 @@ import fitz  # PyMuPDF for PDF to image conversion
 from PIL import Image
 import io
 
+# NEW IMPORTS FOR EXCEL EXPORT
+from datetime import datetime
+import xlsxwriter
+from io import BytesIO
+
 st.set_page_config(
     page_title="Financial Underwriting Assistant",
     page_icon="💰",
@@ -71,7 +76,199 @@ class PIIShield:
                     break
         return pii_summary
 
+class FinancialDataExtractor:
+    def __init__(self):
+        self.extracted_data = {
+            'personal_info': [],
+            'income_details': [],
+            'investment_details': [],
+            'bank_details': [],
+            'loan_details': [],
+            'tax_details': [],
+            'tables_data': [],
+            'raw_text_data': []
+        }
+        
+        self.financial_patterns = {
+            'salary': r'(?:salary|basic\s*pay|gross\s*salary|net\s*salary|ctc)[\s:]*[₹$]?\s*([0-9,]+\.?[0-9]*)',
+            'investment_amount': r'(?:investment|invested|amount)[\s:]*[₹$]?\s*([0-9,]+\.?[0-9]*)',
+            'balance': r'(?:balance|closing\s*balance)[\s:]*[₹$]?\s*([0-9,]+\.?[0-9]*)',
+            'credit_limit': r'(?:credit\s*limit)[\s:]*[₹$]?\s*([0-9,]+\.?[0-9]*)',
+            'emi': r'(?:emi|monthly\s*installment)[\s:]*[₹$]?\s*([0-9,]+\.?[0-9]*)',
+            'tax_paid': r'(?:tax\s*paid|income\s*tax)[\s:]*[₹$]?\s*([0-9,]+\.?[0-9]*)'
+        }
+    
+    def extract_from_documents(self, documents):
+        """Extract financial data from all documents"""
+        for doc in documents:
+            content = doc.page_content
+            metadata = doc.metadata
+            
+            # Extract based on document type
+            if metadata.get("type") == "table":
+                self.extract_table_data(content, metadata)
+            else:
+                self.extract_text_data(content, metadata)
+        
+        return self.extracted_data
+    
+    def extract_table_data(self, content, metadata):
+        """Extract data from table content"""
+        lines = content.split('\n')
+        table_data = []
+        
+        for line in lines:
+            if line.strip() and not line.startswith('---'):
+                # Try to identify financial values in table rows
+                amounts = re.findall(r'[₹$]?\s*([0-9,]+\.?[0-9]*)', line)
+                if amounts:
+                    table_data.append({
+                        'source': metadata.get('source', ''),
+                        'page': metadata.get('page', ''),
+                        'table_number': metadata.get('table_number', ''),
+                        'content': line.strip(),
+                        'extracted_amounts': amounts
+                    })
+        
+        if table_data:
+            self.extracted_data['tables_data'].extend(table_data)
+    
+    def extract_text_data(self, content, metadata):
+        """Extract financial data from text content"""
+        content_lower = content.lower()
+        
+        # Extract using patterns
+        for pattern_name, pattern in self.financial_patterns.items():
+            matches = re.finditer(pattern, content_lower, re.IGNORECASE)
+            for match in matches:
+                extracted_item = {
+                    'source': metadata.get('source', ''),
+                    'page': metadata.get('page', ''),
+                    'type': pattern_name,
+                    'value': match.group(1),
+                    'context': content[max(0, match.start()-50):match.end()+50].strip()
+                }
+                
+                # Categorize based on content type
+                if any(keyword in content_lower for keyword in ['salary', 'income', 'pay']):
+                    self.extracted_data['income_details'].append(extracted_item)
+                elif any(keyword in content_lower for keyword in ['investment', 'mutual fund', 'sip']):
+                    self.extracted_data['investment_details'].append(extracted_item)
+                elif any(keyword in content_lower for keyword in ['bank', 'account', 'balance']):
+                    self.extracted_data['bank_details'].append(extracted_item)
+                elif any(keyword in content_lower for keyword in ['loan', 'emi', 'credit']):
+                    self.extracted_data['loan_details'].append(extracted_item)
+                elif any(keyword in content_lower for keyword in ['tax', 'itr']):
+                    self.extracted_data['tax_details'].append(extracted_item)
+        
+        # Store raw text for reference
+        self.extracted_data['raw_text_data'].append({
+            'source': metadata.get('source', ''),
+            'page': metadata.get('page', ''),
+            'content': content[:500] + '...' if len(content) > 500 else content
+        })
+
+def create_excel_export(extracted_data, filename="financial_data_export.xlsx"):
+    """Create Excel file with extracted financial data"""
+    buffer = BytesIO()
+    
+    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+        workbook = writer.book
+        
+        # Define formats
+        header_format = workbook.add_format({
+            'bold': True,
+            'bg_color': '#4472C4',
+            'font_color': 'white',
+            'border': 1
+        })
+        
+        cell_format = workbook.add_format({
+            'border': 1,
+            'text_wrap': True
+        })
+        
+        amount_format = workbook.add_format({
+            'border': 1,
+            'num_format': '#,##0.00'
+        })
+        
+        # Create summary sheet
+        summary_data = []
+        for category, items in extracted_data.items():
+            if category != 'raw_text_data' and items:
+                summary_data.append({
+                    'Category': category.replace('_', ' ').title(),
+                    'Items Count': len(items),
+                    'Description': f"Contains {len(items)} extracted items"
+                })
+        
+        if summary_data:
+            summary_df = pd.DataFrame(summary_data)
+            summary_df.to_excel(writer, sheet_name='Summary', index=False)
+            worksheet = writer.sheets['Summary']
+            worksheet.set_column('A:C', 20)
+        
+        # Create sheets for each category
+        for category, items in extracted_data.items():
+            if not items or category == 'raw_text_data':
+                continue
+                
+            sheet_name = category.replace('_', ' ').title()[:31]  # Excel sheet name limit
+            
+            if category == 'tables_data':
+                df_data = []
+                for item in items:
+                    df_data.append({
+                        'Source': item.get('source', ''),
+                        'Page': item.get('page', ''),
+                        'Table Number': item.get('table_number', ''),
+                        'Content': item.get('content', ''),
+                        'Extracted Amounts': ', '.join(item.get('extracted_amounts', []))
+                    })
+                df = pd.DataFrame(df_data)
+            else:
+                df_data = []
+                for item in items:
+                    df_data.append({
+                        'Source': item.get('source', ''),
+                        'Page': item.get('page', ''),
+                        'Type': item.get('type', ''),
+                        'Value': item.get('value', ''),
+                        'Context': item.get('context', '')
+                    })
+                df = pd.DataFrame(df_data)
+            
+            if not df.empty:
+                df.to_excel(writer, sheet_name=sheet_name, index=False)
+                worksheet = writer.sheets[sheet_name]
+                
+                # Format columns
+                for col_num, col_name in enumerate(df.columns):
+                    if col_name in ['Value', 'Extracted Amounts']:
+                        worksheet.set_column(col_num, col_num, 15, amount_format)
+                    elif col_name in ['Context', 'Content']:
+                        worksheet.set_column(col_num, col_num, 40, cell_format)
+                    else:
+                        worksheet.set_column(col_num, col_num, 20, cell_format)
+                
+                # Apply header format
+                for col_num, _ in enumerate(df.columns):
+                    worksheet.write(0, col_num, df.columns[col_num], header_format)
+        
+        # Create raw text data sheet (limited content)
+        if extracted_data.get('raw_text_data'):
+            raw_data = extracted_data['raw_text_data'][:100]  # Limit to first 100 entries
+            df_raw = pd.DataFrame(raw_data)
+            df_raw.to_excel(writer, sheet_name='Raw Text Data', index=False)
+            worksheet = writer.sheets['Raw Text Data']
+            worksheet.set_column('A:C', 30, cell_format)
+    
+    buffer.seek(0)
+    return buffer
+
 pii_shield = PIIShield()
+financial_extractor = FinancialDataExtractor()
 
 def setup_vision_client():
     """Setup Google Vision client with API key"""
@@ -553,6 +750,8 @@ if "customer_docs_loaded" not in st.session_state:
     st.session_state.customer_docs_loaded = False
 if "table_stats" not in st.session_state:
     st.session_state.table_stats = {"total_tables": 0, "tables_by_page": {}}
+if "extracted_financial_data" not in st.session_state:
+    st.session_state.extracted_financial_data = None
 
 # Sidebar for settings and status
 with st.sidebar:
