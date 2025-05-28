@@ -73,15 +73,14 @@ class PIIShield:
 
 pii_shield = PIIShield()
 
-# NEW: Google Vision Setup
 def setup_vision_client():
     """Setup Google Vision client with API key"""
     try:
-        # You can set your API key in Streamlit secrets or environment variable
-        api_key = st.secrets.get("GOOGLE_VISION_API_KEY") or os.getenv("GOOGLE_VISION_API_KEY")
+        # Hardcoded API key - Replace with your actual API key
+        api_key = "AIzaSyDz9toLotDK35LQUWat9E4sQ8DjFmXO4HE"
         
-        if not api_key:
-            st.error("⚠️ Google Vision API key not found. Please set GOOGLE_VISION_API_KEY in secrets or environment.")
+        if not api_key or api_key == "YOUR_ACTUAL_GOOGLE_VISION_API_KEY_HERE":
+            st.error("⚠️ Please replace 'YOUR_ACTUAL_GOOGLE_VISION_API_KEY_HERE' with your actual Google Vision API key.")
             return None
             
         # Create credentials from API key
