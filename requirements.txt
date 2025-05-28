@@ -9,4 +9,4 @@ pandas
 google-cloud-vision
 pdf2image
 Pillow
-fitz
+PyMuPDF
