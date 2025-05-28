@@ -560,6 +560,7 @@ def load_customer_pdf_with_vision(file_path, filename=""):
             return vision_documents, doc_type
         else:
             st.warning("Vision API failed, using available content from pdfplumber...")
+            # Fall through to use pdfplumber content even if minimal
     
     # Convert pdfplumber results to Document objects
     documents = []
@@ -590,6 +591,7 @@ def load_customer_pdf_with_vision(file_path, filename=""):
             )
             documents.append(doc)
     
+    # Always return tuple (documents, doc_type)
     return documents, doc_type
 
 def load_pdf_with_tables(file_path):
@@ -939,8 +941,8 @@ with col2:
             for file in customer_files:
                 file_path = upload_pdf(file, customer_docs_directory)
                 
-                # Use improved document processing flow
-                documents = load_customer_pdf_with_vision(file_path)
+                # Use improved document processing flow - now properly unpacking tuple
+                documents, doc_type = load_customer_pdf_with_vision(file_path, file.name)
                 
                 # Count scanned documents
                 if any(doc.metadata.get("extraction_method") == "google_vision" for doc in documents):
