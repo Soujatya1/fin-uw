@@ -12,6 +12,14 @@ from langchain.embeddings import HuggingFaceEmbeddings
 import pandas as pd
 from langchain_core.documents import Document
 
+# NEW IMPORTS FOR GOOGLE VISION
+from google.cloud import vision
+from google.oauth2 import service_account
+import json
+import fitz  # PyMuPDF for PDF to image conversion
+from PIL import Image
+import io
+
 st.set_page_config(
     page_title="Financial Underwriting Assistant",
     page_icon="💰",
@@ -64,6 +72,119 @@ class PIIShield:
         return pii_summary
 
 pii_shield = PIIShield()
+
+# NEW: Google Vision Setup
+def setup_vision_client():
+    """Setup Google Vision client with API key"""
+    try:
+        # You can set your API key in Streamlit secrets or environment variable
+        api_key = st.secrets.get("GOOGLE_VISION_API_KEY") or os.getenv("GOOGLE_VISION_API_KEY")
+        
+        if not api_key:
+            st.error("⚠️ Google Vision API key not found. Please set GOOGLE_VISION_API_KEY in secrets or environment.")
+            return None
+            
+        # Create credentials from API key
+        client = vision.ImageAnnotatorClient(
+            client_options={"api_key": api_key}
+        )
+        return client
+    except Exception as e:
+        st.error(f"Error setting up Google Vision client: {str(e)}")
+        return None
+
+def pdf_to_images(pdf_path):
+    """Convert PDF pages to images for Vision API"""
+    try:
+        doc = fitz.open(pdf_path)
+        images = []
+        
+        for page_num in range(len(doc)):
+            page = doc.load_page(page_num)
+            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # Higher resolution
+            img_data = pix.tobytes("png")
+            images.append({
+                "data": img_data,
+                "page": page_num + 1
+            })
+        
+        doc.close()
+        return images
+    except Exception as e:
+        st.error(f"Error converting PDF to images: {str(e)}")
+        return []
+
+def extract_text_with_vision(pdf_path):
+    """Extract text from scanned PDF using Google Vision API"""
+    vision_client = setup_vision_client()
+    if not vision_client:
+        return []
+    
+    try:
+        images = pdf_to_images(pdf_path)
+        documents = []
+        
+        for img_info in images:
+            # Prepare image for Vision API
+            image = vision.Image(content=img_info["data"])
+            
+            # Perform text detection
+            response = vision_client.text_detection(image=image)
+            
+            if response.error.message:
+                st.error(f"Vision API error: {response.error.message}")
+                continue
+            
+            # Extract text
+            texts = response.text_annotations
+            if texts:
+                extracted_text = texts[0].description
+                
+                doc = Document(
+                    page_content=extracted_text,
+                    metadata={
+                        "source": pdf_path,
+                        "page": img_info["page"],
+                        "type": "scanned_text",
+                        "extraction_method": "google_vision"
+                    }
+                )
+                documents.append(doc)
+        
+        return documents
+        
+    except Exception as e:
+        st.error(f"Error with Google Vision API: {str(e)}")
+        return []
+
+def is_scanned_pdf(pdf_path):
+    """Determine if PDF is scanned by checking if text extraction yields minimal text"""
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            total_text = ""
+            for page in pdf.pages[:3]:  # Check first 3 pages
+                text = page.extract_text() or ""
+                total_text += text
+            
+            # If very little text is extracted, likely scanned
+            return len(total_text.strip()) < 100
+    except:
+        return True  # Assume scanned if can't determine
+
+# MODIFIED: Enhanced customer document processing
+def load_customer_pdf_with_vision(file_path):
+    """Load customer PDF with Vision API for scanned documents, regular extraction for text PDFs"""
+    
+    if is_scanned_pdf(file_path):
+        st.info(f"📸 Detected scanned document. Using Google Vision API for text extraction...")
+        documents = extract_text_with_vision(file_path)
+        if documents:
+            return documents
+        else:
+            st.warning("Vision API failed, falling back to regular extraction...")
+    
+    # Fallback to regular extraction (same as original function)
+    return extract_tables_from_pdf(file_path)
 
 def extract_tables_from_pdf(file_path):
     document_content = []
@@ -391,6 +512,7 @@ with st.sidebar:
                 - **Data Retention**: Document data is stored in memory only and cleared when the session ends
                 - **Secure Processing**: All financial analysis is performed on anonymized data
                 - **Table Extraction**: Enhanced parsing preserves tabular financial data structure
+                - **Google Vision**: Scanned documents processed with OCR for better text extraction
                 - **Compliance**: Designed to help maintain privacy standards for financial document processing""")
     
     pii_enabled = st.toggle("Enable PII Shield", value=True, help="Automatically anonymize personal information")
@@ -406,6 +528,15 @@ with st.sidebar:
                 st.write(f"• {pii_type.replace('_', ' ').title()}: {count} instances")
     else:
         st.warning("⚠️ PII Shield Disabled - Use with caution!")
+    
+    # NEW: Vision API Status
+    st.markdown("### 📸 Google Vision Status")
+    vision_client = setup_vision_client()
+    if vision_client:
+        st.success("✅ Google Vision API Ready")
+    else:
+        st.error("❌ Google Vision API Not Available")
+        st.markdown("Set `GOOGLE_VISION_API_KEY` in secrets.toml or environment")
     
     if st.button("🗑️ Clear Analysis History"):
         st.session_state.conversation_history = []
@@ -432,7 +563,7 @@ with col1:
             all_guideline_docs = []
             for file in guidelines_files:
                 file_path = upload_pdf(file, guidelines_directory)
-                documents = load_pdf_with_tables(file_path)
+                documents = load_pdf_with_tables(file_path)  # Keep original method for guidelines
                 chunked_documents = split_text(documents)
                 all_guideline_docs.extend(chunked_documents)
             
@@ -445,18 +576,26 @@ with col2:
         "💼 Upload Customer Financial Documents",
         type="pdf",
         accept_multiple_files=True,
-        key="customer_uploader"
+        key="customer_uploader",
+        help="Supports both regular PDFs and scanned documents (using Google Vision API)"
     )
     
     if customer_files:
-        with st.spinner("Processing customer documents with enhanced table extraction..."):
+        with st.spinner("Processing customer documents with enhanced table extraction and Vision API..."):
             all_customer_docs = []
             table_count = 0
             tables_by_page = {}
+            scanned_count = 0
             
             for file in customer_files:
                 file_path = upload_pdf(file, customer_docs_directory)
-                documents = load_pdf_with_tables(file_path)
+                
+                # MODIFIED: Use Vision API for customer documents
+                documents = load_customer_pdf_with_vision(file_path)
+                
+                # Count scanned documents
+                if any(doc.metadata.get("extraction_method") == "google_vision" for doc in documents):
+                    scanned_count += 1
                 
                 for doc in documents:
                     if doc.metadata.get("type") == "table":
@@ -481,6 +620,8 @@ with col2:
             st.session_state.customer_docs_loaded = True
             
             success_msg = f"✅ {len(customer_files)} customer document(s) processed!"
+            if scanned_count > 0:
+                success_msg += f" 📸 {scanned_count} scanned with Vision API!"
             if table_count > 0:
                 success_msg += f" 📊 {table_count} tables extracted!"
             
@@ -490,7 +631,7 @@ with col2:
             st.success(success_msg)
 
 if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
-    st.success("🎉 All documents loaded! Enhanced table extraction ready for financial analysis.")
+    st.success("🎉 All documents loaded! Enhanced table extraction and Vision API ready for financial analysis.")
 elif st.session_state.guidelines_loaded:
     st.warning("Guidelines loaded. Please upload customer financial documents.")
 elif st.session_state.customer_docs_loaded:
@@ -500,7 +641,7 @@ else:
 
 if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
     st.markdown("---")
-    st.markdown("### 🔍 Enhanced Financial Analysis with Table Data")
+    st.markdown("### 🔍 Enhanced Financial Analysis with Table Data & Vision OCR")
     
     col1, col2, col3, col4 = st.columns(4)
     
