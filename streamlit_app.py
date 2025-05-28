@@ -980,6 +980,9 @@ with col2:
                 success_msg += f" 🛡️ {len(pii_shield.replacement_map)} PII elements anonymized!"
             
             st.success(success_msg)
+            st.markdown("#### 📋 Detected Document Types:")
+            for file_info in processed_files:
+                st.write(f"• **{file_info['filename']}**: {file_info['display_name']}")
 
 # Status display
 if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
