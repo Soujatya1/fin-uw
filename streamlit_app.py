@@ -366,72 +366,24 @@ def extract_text_with_vision(pdf_path):
         return []
 
 def is_scanned_pdf(pdf_path):
+    """Enhanced detection for scanned vs digital PDFs"""
     try:
         with pdfplumber.open(pdf_path) as pdf:
             total_text = ""
-            for page in pdf.pages[:3]:
+            total_chars = 0
+            pages_checked = min(3, len(pdf.pages))  # Check first 3 pages or all if fewer
+            
+            for page in pdf.pages[:pages_checked]:
                 text = page.extract_text() or ""
                 total_text += text
+                total_chars += len(text.strip())
             
-            return len(total_text.strip()) < 100
+            # More sophisticated detection
+            # Consider it scanned if very little text per page
+            avg_chars_per_page = total_chars / pages_checked if pages_checked > 0 else 0
+            return avg_chars_per_page < 50
     except:
         return True
-
-def is_page_scanned(pdf_path: str, page_num: int, page_text: str = None) -> bool:
-    """
-    Robust method to detect if a page is scanned using multiple indicators:
-    1. Check if page is mostly covered by images
-    2. Check text density and quality
-    3. Check for embedded fonts
-    """
-    try:
-        # Method 1: Check image coverage using PyMuPDF
-        import fitz
-        doc = fitz.open(pdf_path)
-        page = doc.load_page(page_num - 1)  # Convert to 0-based index
-        
-        # Get page dimensions
-        page_rect = page.rect
-        page_area = page_rect.width * page_rect.height
-        
-        # Get all images on the page
-        image_list = page.get_images()
-        total_image_area = 0
-        
-        for img_index, img in enumerate(image_list):
-            # Get image rectangles
-            img_rects = page.get_image_rects(img[0])
-            for rect in img_rects:
-                total_image_area += rect.width * rect.height
-        
-        doc.close()
-        
-        # If images cover more than 80% of the page, likely scanned
-        image_coverage_ratio = total_image_area / page_area if page_area > 0 else 0
-        
-        # Method 2: Check text characteristics
-        text_density = len(page_text.strip()) if page_text else 0
-        has_meaningful_text = text_density > 100
-        
-        # Method 3: Check for searchable text vs image-based content
-        words_per_area = text_density / page_area * 10000 if page_area > 0 else 0
-        
-        # Decision logic:
-        # - High image coverage (>80%) = likely scanned
-        # - Very low text density (<50 chars) = likely scanned  
-        # - Very low words per area (<5) = likely scanned
-        is_scanned = (
-            image_coverage_ratio > 0.8 or 
-            text_density < 50 or 
-            words_per_area < 5
-        )
-        
-        return is_scanned
-        
-    except Exception as e:
-        # Fallback to simple text-based detection
-        text_density = len(page_text.strip()) if page_text else 0
-        return text_density < 50
 
 def extract_tables_from_pdf(file_path):
     document_content = []
@@ -507,84 +459,113 @@ def format_table_for_llm(df: pd.DataFrame, table_info: dict) -> str:
     return table_text
 
 def load_customer_pdf_with_vision(file_path):
-    """Enhanced function to handle mixed PDFs (both scanned and digital pages)"""
-    # Extract content using pdfplumber first
+    """Enhanced function to handle mixed PDF types"""
+    # First, try normal extraction
     document_content = extract_tables_from_pdf(file_path)
     
-    # Analyze each page to determine if it's scanned or digital
-    page_analysis = {}
-    scanned_pages = set()
-    digital_documents = []
+    # Analyze extraction quality per page
+    page_extraction_quality = {}
+    total_meaningful_content = False
     
-    # First pass: Analyze all pages
     for content in document_content:
         page_num = content["page"]
-        if page_num not in page_analysis:
-            page_text = content["content"] if content["type"] == "text" else ""
-            is_scanned = is_page_scanned(file_path, page_num, page_text)
-            page_analysis[page_num] = is_scanned
-            
-            if is_scanned:
-                scanned_pages.add(page_num)
-    
-    # Second pass: Process content based on page analysis
-    for content in document_content:
-        page_num = content["page"]
-        
         if content["type"] == "text":
-            if not page_analysis.get(page_num, True):  # Digital page
-                doc = Document(
-                    page_content=content["content"],
-                    metadata={
-                        "source": file_path,
-                        "page": page_num,
-                        "type": "text"
-                    }
-                )
-                digital_documents.append(doc)
-                
+            text_length = len(content["content"].strip())
+            page_extraction_quality[page_num] = text_length
+            if text_length > 50:
+                total_meaningful_content = True
+        elif content["type"] == "table" and not content["dataframe"].empty:
+            page_extraction_quality[page_num] = page_extraction_quality.get(page_num, 0) + 100  # Boost for tables
+            total_meaningful_content = True
+    
+    # Identify pages that need OCR (low text extraction)
+    pages_needing_ocr = []
+    for page_num, quality in page_extraction_quality.items():
+        if quality < 30:  # Threshold for poor extraction
+            pages_needing_ocr.append(page_num)
+    
+    # If no meaningful content at all, use OCR for entire document
+    if not total_meaningful_content:
+        st.info(f"📸 Document appears to be entirely scanned. Using Google Vision API...")
+        vision_documents = extract_text_with_vision(file_path)
+        if vision_documents:
+            return vision_documents
+        else:
+            st.warning("Vision API failed, using available content from pdfplumber...")
+    
+    # For mixed documents, use OCR only for problematic pages
+    elif pages_needing_ocr:
+        st.info(f"📸 Using OCR for pages with poor text extraction: {pages_needing_ocr}")
+        vision_documents = extract_text_with_vision_selective(file_path, pages_needing_ocr)
+        
+        # Merge OCR results with regular extraction
+        documents = []
+        ocr_pages = {doc.metadata["page"]: doc for doc in vision_documents}
+        
+        for content in document_content:
+            page_num = content["page"]
+            
+            # Use OCR version if available and original extraction was poor
+            if page_num in ocr_pages and page_num in pages_needing_ocr:
+                documents.append(ocr_pages[page_num])
+            else:
+                # Use regular extraction
+                if content["type"] == "text":
+                    doc = Document(
+                        page_content=content["content"],
+                        metadata={
+                            "source": file_path,
+                            "page": content["page"],
+                            "type": "text"
+                        }
+                    )
+                    documents.append(doc)
+                elif content["type"] == "table":
+                    table_text = format_table_for_llm(content["dataframe"], content)
+                    doc = Document(
+                        page_content=table_text,
+                        metadata={
+                            "source": file_path,
+                            "page": content["page"],
+                            "type": "table",
+                            "table_number": content["table_number"]
+                        }
+                    )
+                    documents.append(doc)
+        
+        return documents
+    
+    # For documents with good regular extraction, proceed normally
+    documents = []
+    for content in document_content:
+        if content["type"] == "text":
+            doc = Document(
+                page_content=content["content"],
+                metadata={
+                    "source": file_path,
+                    "page": content["page"],
+                    "type": "text"
+                }
+            )
+            documents.append(doc)
+            
         elif content["type"] == "table":
-            # Tables can be extracted from both digital and some scanned pages
-            # Only include if from digital pages or if table extraction was successful
-            if not page_analysis.get(page_num, True) or not content["dataframe"].empty:
-                table_text = format_table_for_llm(content["dataframe"], content)
-                doc = Document(
-                    page_content=table_text,
-                    metadata={
-                        "source": file_path,
-                        "page": page_num,
-                        "type": "table",
-                        "table_number": content["table_number"]
-                    }
-                )
-                digital_documents.append(doc)
+            table_text = format_table_for_llm(content["dataframe"], content)
+            doc = Document(
+                page_content=table_text,
+                metadata={
+                    "source": file_path,
+                    "page": content["page"],
+                    "type": "table",
+                    "table_number": content["table_number"]
+                }
+            )
+            documents.append(doc)
     
-    # Process scanned pages with Google Vision API
-    vision_documents = []
-    if scanned_pages:
-        st.info(f"📸 Processing {len(scanned_pages)} scanned page(s) with Google Vision API...")
-        st.info(f"Scanned pages: {sorted(list(scanned_pages))}")
-        vision_documents = extract_text_with_vision_selective(file_path, list(scanned_pages))
-    
-    # Combine all documents
-    all_documents = digital_documents + vision_documents
-    
-    if not all_documents:
-        st.warning("No content could be extracted from the document.")
-        return []
-    
-    # Log detailed processing summary
-    digital_pages = [p for p, is_scanned in page_analysis.items() if not is_scanned]
-    
-    st.success(f"✅ Page Analysis Complete:")
-    st.info(f"📄 Digital pages: {sorted(digital_pages)} ({len(digital_pages)} pages)")
-    st.info(f"📸 Scanned pages: {sorted(list(scanned_pages))} ({len(scanned_pages)} pages)")
-    st.info(f"📊 Total elements extracted: {len(all_documents)}")
-    
-    return all_documents
+    return documents
 
-def extract_text_with_vision_selective(pdf_path, target_pages):
-    """Extract text using Vision API only for specified pages"""
+def extract_text_with_vision_selective(pdf_path, target_pages=None):
+    """Extract text using Vision API for specific pages only"""
     vision_client = setup_vision_client()
     if not vision_client:
         return []
@@ -594,30 +575,32 @@ def extract_text_with_vision_selective(pdf_path, target_pages):
         documents = []
         
         for img_info in images:
-            # Only process pages that were identified as scanned
-            if img_info["page"] in target_pages:
-                image = vision.Image(content=img_info["data"])
+            # Skip pages not in target list if specified
+            if target_pages and img_info["page"] not in target_pages:
+                continue
                 
-                response = vision_client.text_detection(image=image)
+            image = vision.Image(content=img_info["data"])
+            
+            response = vision_client.text_detection(image=image)
+            
+            if response.error.message:
+                st.error(f"Vision API error on page {img_info['page']}: {response.error.message}")
+                continue
+            
+            texts = response.text_annotations
+            if texts:
+                extracted_text = texts[0].description
                 
-                if response.error.message:
-                    st.error(f"Vision API error on page {img_info['page']}: {response.error.message}")
-                    continue
-                
-                texts = response.text_annotations
-                if texts:
-                    extracted_text = texts[0].description
-                    
-                    doc = Document(
-                        page_content=extracted_text,
-                        metadata={
-                            "source": pdf_path,
-                            "page": img_info["page"],
-                            "type": "scanned_text",
-                            "extraction_method": "google_vision"
-                        }
-                    )
-                    documents.append(doc)
+                doc = Document(
+                    page_content=extracted_text,
+                    metadata={
+                        "source": pdf_path,
+                        "page": img_info["page"],
+                        "type": "scanned_text",
+                        "extraction_method": "google_vision"
+                    }
+                )
+                documents.append(doc)
         
         return documents
         
