@@ -578,6 +578,16 @@ IMPORTANT: All customer data has been anonymized for privacy protection. Use ano
 
 If you find multiple monthly salaries of a customer, calculate the average and multiply the same with "Income Multiplier" as mentioned in the Age-Based Income Multipliers table in the {guidelines_context}, and show it as "Financial Viability"
 
+**Guideline Compliance Check:**
+- Cross-reference each extracted financial parameter against the provided underwriting guidelines
+- Identify specific guideline thresholds, ratios, or requirements that apply
+- Flag any customer financial data that falls outside acceptable ranges per guidelines
+- Reference specific guideline sections/pages when making assessments
+
+**Guidelines Comparison Table:**
+| Financial Parameter | Customer Value | Guideline Requirement | Compliance Status | Comments |
+|-------------------|---------------|---------------------|------------------|----------|
+
 CRITICAL INSTRUCTIONS:
 1. CAREFULLY READ through ALL the provided customer financial documents including both text and tables
 2. Extract SPECIFIC numerical values, amounts, and financial data mentioned in the documents
