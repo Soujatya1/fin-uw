@@ -33,6 +33,41 @@ st.set_page_config(
 
 st.title("💰 Financial Underwriting Assistant")
 
+def get_income_multiplier(age: int, policy_type: str) -> int:
+    """Get income multiplier based on age and policy type"""
+    if policy_type.lower() == "term":
+        if 18 <= age <= 30:
+            return 25
+        elif 31 <= age <= 35:
+            return 25
+        elif 36 <= age <= 40:
+            return 20
+        elif 41 <= age <= 45:
+            return 15
+        elif 46 <= age <= 50:
+            return 12
+        elif 51 <= age <= 55:
+            return 10
+        elif age >= 56:
+            return 5
+    else:  # Non-term cases
+        if 18 <= age <= 30:
+            return 35
+        elif 31 <= age <= 35:
+            return 30
+        elif 36 <= age <= 40:
+            return 25
+        elif 41 <= age <= 45:
+            return 20
+        elif 46 <= age <= 50:
+            return 15
+        elif 51 <= age <= 65:
+            return 10
+        elif age > 65:
+            return 6
+    
+    return 10
+
 class PIIShield:
     def __init__(self):
         self.pii_patterns = {
