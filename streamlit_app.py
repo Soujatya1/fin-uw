@@ -930,19 +930,28 @@ with col2:
         key="customer_uploader",
         help="Supports both regular PDFs and scanned documents (using Google Vision API)"
     )
-    
-    if customer_files:
+     if "processed_files" not in st.session_state:
+        st.session_state.processed_files = []
+     if customer_files:
         with st.spinner("Processing customer documents with enhanced table extraction and Vision API..."):
             all_customer_docs = []
             table_count = 0
             tables_by_page = {}
             scanned_count = 0
+            processed_files = []
             
             for file in customer_files:
                 file_path = upload_pdf(file, customer_docs_directory)
                 
                 # Use improved document processing flow - now properly unpacking tuple
                 documents, doc_type = load_customer_pdf_with_vision(file_path, file.name)
+                
+                # Store file info with detected document type
+                processed_files.append({
+                    'filename': file.name,
+                    'doc_type': doc_type,
+                    'display_name': doc_classifier.get_document_type_display_name(doc_type)
+                })
                 
                 # Count scanned documents
                 if any(doc.metadata.get("extraction_method") == "google_vision" for doc in documents):
@@ -967,6 +976,9 @@ with col2:
                 "tables_by_page": tables_by_page
             }
             
+            # Store processed files in session state
+            st.session_state.processed_files = processed_files
+            
             customer_docs_vector_store.add_documents(all_customer_docs)
             st.session_state.customer_docs_loaded = True
             
@@ -983,6 +995,11 @@ with col2:
             st.markdown("#### 📋 Detected Document Types:")
             for file_info in processed_files:
                 st.write(f"• **{file_info['filename']}**: {file_info['display_name']}")
+                
+     if st.session_state.get("processed_files"):
+         st.markdown("#### 📋 Detected Document Types:")
+         for file_info in st.session_state.processed_files:
+             st.write(f"• **{file_info['filename']}**: {file_info['display_name']}")
 
 # Status display
 if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
