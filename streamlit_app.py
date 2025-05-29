@@ -12,15 +12,13 @@ from langchain.embeddings import HuggingFaceEmbeddings
 import pandas as pd
 from langchain_core.documents import Document
 
-# NEW IMPORTS FOR GOOGLE VISION
 from google.cloud import vision
 from google.oauth2 import service_account
 import json
-import fitz  # PyMuPDF for PDF to image conversion
+import fitz
 from PIL import Image
 import io
 
-# NEW IMPORTS FOR EXCEL EXPORT
 from datetime import datetime
 import xlsxwriter
 from io import BytesIO
@@ -50,7 +48,7 @@ def get_income_multiplier(age: int, policy_type: str) -> int:
             return 10
         elif age >= 56:
             return 5
-    else:  # Non-term cases
+    else:
         if 18 <= age <= 30:
             return 35
         elif 31 <= age <= 35:
@@ -134,12 +132,10 @@ class FinancialDataExtractor:
         }
     
     def extract_from_documents(self, documents):
-        """Extract financial data from all documents"""
         for doc in documents:
             content = doc.page_content
             metadata = doc.metadata
             
-            # Extract based on document type
             if metadata.get("type") == "table":
                 self.extract_table_data(content, metadata)
             else:
@@ -148,13 +144,11 @@ class FinancialDataExtractor:
         return self.extracted_data
     
     def extract_table_data(self, content, metadata):
-        """Extract data from table content"""
         lines = content.split('\n')
         table_data = []
         
         for line in lines:
             if line.strip() and not line.startswith('---'):
-                # Try to identify financial values in table rows
                 amounts = re.findall(r'[₹$]?\s*([0-9,]+\.?[0-9]*)', line)
                 if amounts:
                     table_data.append({
@@ -169,10 +163,8 @@ class FinancialDataExtractor:
             self.extracted_data['tables_data'].extend(table_data)
     
     def extract_text_data(self, content, metadata):
-        """Extract financial data from text content"""
         content_lower = content.lower()
         
-        # Extract using patterns
         for pattern_name, pattern in self.financial_patterns.items():
             matches = re.finditer(pattern, content_lower, re.IGNORECASE)
             for match in matches:
@@ -184,7 +176,6 @@ class FinancialDataExtractor:
                     'context': content[max(0, match.start()-50):match.end()+50].strip()
                 }
                 
-                # Categorize based on content type
                 if any(keyword in content_lower for keyword in ['salary', 'income', 'pay']):
                     self.extracted_data['income_details'].append(extracted_item)
                 elif any(keyword in content_lower for keyword in ['investment', 'mutual fund', 'sip']):
@@ -196,7 +187,6 @@ class FinancialDataExtractor:
                 elif any(keyword in content_lower for keyword in ['tax', 'itr']):
                     self.extracted_data['tax_details'].append(extracted_item)
         
-        # Store raw text for reference
         self.extracted_data['raw_text_data'].append({
             'source': metadata.get('source', ''),
             'page': metadata.get('page', ''),
@@ -204,13 +194,11 @@ class FinancialDataExtractor:
         })
 
 def create_excel_export(extracted_data, filename="financial_data_export.xlsx"):
-    """Create Excel file with extracted financial data"""
     buffer = BytesIO()
     
     with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
         workbook = writer.book
         
-        # Define formats
         header_format = workbook.add_format({
             'bold': True,
             'bg_color': '#4472C4',
@@ -228,7 +216,6 @@ def create_excel_export(extracted_data, filename="financial_data_export.xlsx"):
             'num_format': '#,##0.00'
         })
         
-        # Create summary sheet
         summary_data = []
         for category, items in extracted_data.items():
             if category != 'raw_text_data' and items:
@@ -244,12 +231,11 @@ def create_excel_export(extracted_data, filename="financial_data_export.xlsx"):
             worksheet = writer.sheets['Summary']
             worksheet.set_column('A:C', 20)
         
-        # Create sheets for each category
         for category, items in extracted_data.items():
             if not items or category == 'raw_text_data':
                 continue
                 
-            sheet_name = category.replace('_', ' ').title()[:31]  # Excel sheet name limit
+            sheet_name = category.replace('_', ' ').title()[:31]
             
             if category == 'tables_data':
                 df_data = []
@@ -287,13 +273,11 @@ def create_excel_export(extracted_data, filename="financial_data_export.xlsx"):
                     else:
                         worksheet.set_column(col_num, col_num, 20, cell_format)
                 
-                # Apply header format
                 for col_num, _ in enumerate(df.columns):
                     worksheet.write(0, col_num, df.columns[col_num], header_format)
         
-        # Create raw text data sheet (limited content)
         if extracted_data.get('raw_text_data'):
-            raw_data = extracted_data['raw_text_data'][:100]  # Limit to first 100 entries
+            raw_data = extracted_data['raw_text_data'][:100]
             df_raw = pd.DataFrame(raw_data)
             df_raw.to_excel(writer, sheet_name='Raw Text Data', index=False)
             worksheet = writer.sheets['Raw Text Data']
@@ -306,16 +290,13 @@ pii_shield = PIIShield()
 financial_extractor = FinancialDataExtractor()
 
 def setup_vision_client():
-    """Setup Google Vision client with API key"""
     try:
-        # Hardcoded API key - Replace with your actual API key
         api_key = "AIzaSyDz9toLotDK35LQUWat9E4sQ8DjFmXO4HE"
         
         if not api_key or api_key == "YOUR_ACTUAL_GOOGLE_VISION_API_KEY_HERE":
             st.error("⚠️ Please replace 'YOUR_ACTUAL_GOOGLE_VISION_API_KEY_HERE' with your actual Google Vision API key.")
             return None
             
-        # Create credentials from API key
         client = vision.ImageAnnotatorClient(
             client_options={"api_key": api_key}
         )
@@ -325,14 +306,13 @@ def setup_vision_client():
         return None
 
 def pdf_to_images(pdf_path):
-    """Convert PDF pages to images for Vision API"""
     try:
         doc = fitz.open(pdf_path)
         images = []
         
         for page_num in range(len(doc)):
             page = doc.load_page(page_num)
-            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # Higher resolution
+            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
             img_data = pix.tobytes("png")
             images.append({
                 "data": img_data,
@@ -346,7 +326,6 @@ def pdf_to_images(pdf_path):
         return []
 
 def extract_text_with_vision(pdf_path):
-    """Extract text from scanned PDF using Google Vision API"""
     vision_client = setup_vision_client()
     if not vision_client:
         return []
@@ -356,17 +335,14 @@ def extract_text_with_vision(pdf_path):
         documents = []
         
         for img_info in images:
-            # Prepare image for Vision API
             image = vision.Image(content=img_info["data"])
             
-            # Perform text detection
             response = vision_client.text_detection(image=image)
             
             if response.error.message:
                 st.error(f"Vision API error: {response.error.message}")
                 continue
             
-            # Extract text
             texts = response.text_annotations
             if texts:
                 extracted_text = texts[0].description
@@ -389,21 +365,18 @@ def extract_text_with_vision(pdf_path):
         return []
 
 def is_scanned_pdf(pdf_path):
-    """Determine if PDF is scanned by checking if text extraction yields minimal text"""
     try:
         with pdfplumber.open(pdf_path) as pdf:
             total_text = ""
-            for page in pdf.pages[:3]:  # Check first 3 pages
+            for page in pdf.pages[:3]:
                 text = page.extract_text() or ""
                 total_text += text
             
-            # If very little text is extracted, likely scanned
             return len(total_text.strip()) < 100
     except:
-        return True  # Assume scanned if can't determine
+        return True
 
 def extract_tables_from_pdf(file_path):
-    """Extract both text and tables from PDF using pdfplumber"""
     document_content = []
     
     with pdfplumber.open(file_path) as pdf:
@@ -454,7 +427,6 @@ def extract_tables_from_pdf(file_path):
     return document_content
 
 def format_table_for_llm(df: pd.DataFrame, table_info: dict) -> str:
-    """Format table data for LLM processing"""
     if df.empty:
         return f"Empty table on page {table_info['page']}"
     
@@ -478,12 +450,9 @@ def format_table_for_llm(df: pd.DataFrame, table_info: dict) -> str:
     return table_text
 
 def load_customer_pdf_with_vision(file_path):
-    """Load customer PDF: First try pdfplumber, then Vision API for scanned documents"""
     
-    # First, try regular extraction with pdfplumber
     document_content = extract_tables_from_pdf(file_path)
     
-    # Check if we got meaningful content
     has_meaningful_content = False
     for content in document_content:
         if content["type"] == "text" and len(content["content"].strip()) > 50:
@@ -493,7 +462,6 @@ def load_customer_pdf_with_vision(file_path):
             has_meaningful_content = True
             break
     
-    # If no meaningful content found, treat as scanned and use Vision API
     if not has_meaningful_content:
         st.info(f"📸 Document appears to be scanned. Using Google Vision API for text extraction...")
         vision_documents = extract_text_with_vision(file_path)
@@ -502,7 +470,6 @@ def load_customer_pdf_with_vision(file_path):
         else:
             st.warning("Vision API failed, using available content from pdfplumber...")
     
-    # Convert pdfplumber results to Document objects
     documents = []
     for content in document_content:
         if content["type"] == "text":
@@ -532,7 +499,6 @@ def load_customer_pdf_with_vision(file_path):
     return documents
 
 def load_pdf_with_tables(file_path):
-    """Load PDF with tables for guidelines (uses regular pdfplumber extraction)"""
     document_content = extract_tables_from_pdf(file_path)
     documents = []
     
@@ -564,7 +530,6 @@ def load_pdf_with_tables(file_path):
     return documents
 
 def split_text(documents):
-    """Split documents into chunks while preserving table structure"""
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=1500,
         chunk_overlap=200,
@@ -582,7 +547,6 @@ def split_text(documents):
     return chunked_docs
 
 def extract_financial_info(documents):
-    """Extract financially relevant document chunks"""
     financial_keywords = [
         "salary", "income", "annual income", "monthly income", 
         "basic pay", "gross salary", "net salary", "CTC",
@@ -716,7 +680,6 @@ Answer:
 """
 
 def determine_question_type(question: str) -> str:
-    """Determine if question requires comprehensive or specific analysis"""
     comprehensive_keywords = [
         "complete analysis", "full report", "comprehensive", "detailed analysis",
         "overall assessment", "complete evaluation", "full evaluation",
@@ -738,14 +701,12 @@ def determine_question_type(question: str) -> str:
     
     return "specific"
 
-# Directory setup
 guidelines_directory = '.github/guidelines/'
 customer_docs_directory = '.github/customer_docs/'
 
 os.makedirs(guidelines_directory, exist_ok=True)
 os.makedirs(customer_docs_directory, exist_ok=True)
 
-# Initialize models and vector stores
 embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 guidelines_vector_store = InMemoryVectorStore(embeddings)
 customer_docs_vector_store = InMemoryVectorStore(embeddings)
@@ -757,14 +718,12 @@ model = ChatGroq(
 )
 
 def upload_pdf(file, directory):
-    """Save uploaded file to directory"""
     file_path = directory + file.name
     with open(file_path, "wb") as f:
         f.write(file.getbuffer())
     return file_path
 
 def process_documents_with_pii_shield(documents):
-    """Apply PII protection to documents"""
     protected_docs = []
     for doc in documents:
         anonymized_content = pii_shield.anonymize_text(doc.page_content)
@@ -778,7 +737,6 @@ def process_documents_with_pii_shield(documents):
     return protected_docs
 
 def analyze_customer_finances(question, guidelines_docs, customer_docs):
-    """Analyze customer finances based on question and documents"""
     guidelines_context = "\n\n".join([doc.page_content for doc in guidelines_docs])
     
     financial_docs = extract_financial_info(customer_docs)
@@ -786,8 +744,7 @@ def analyze_customer_finances(question, guidelines_docs, customer_docs):
     
     question_type = determine_question_type(question)
     
-    # Get customer age and policy type from session state
-    customer_age = st.session_state.customer_age or 30  # Default age if not provided
+    customer_age = st.session_state.customer_age or 30
     policy_type = st.session_state.policy_type or "Term"
     income_multiplier = get_income_multiplier(customer_age, policy_type)
     
@@ -810,7 +767,6 @@ def analyze_customer_finances(question, guidelines_docs, customer_docs):
     
     return response.content
 
-# Initialize session state
 if "conversation_history" not in st.session_state:
     st.session_state.conversation_history = []
 if "guidelines_loaded" not in st.session_state:
@@ -826,7 +782,6 @@ if "customer_age" not in st.session_state:
 if "policy_type" not in st.session_state:
     st.session_state.policy_type = "Term"
 
-# Sidebar for settings and status
 with st.sidebar:
     st.markdown("### 🛡️ PII Protection Settings")
     st.markdown("""
@@ -852,7 +807,6 @@ with st.sidebar:
     else:
         st.warning("⚠️ PII Shield Disabled - Use with caution!")
     
-    # Vision API Status
     st.markdown("### 📸 Google Vision Status")
     vision_client = setup_vision_client()
     if vision_client:
@@ -871,10 +825,8 @@ with st.sidebar:
         pii_shield.replacement_map.clear()
         st.success("PII cache cleared")
 
-# Main content area
 col1, col2 = st.columns(2)
 
-# Guidelines uploader
 with col1:
     guidelines_files = st.file_uploader(
         "📋 Upload Financial Underwriting Guidelines",
@@ -896,7 +848,6 @@ with col1:
             st.session_state.guidelines_loaded = True
             st.success(f"✅ {len(guidelines_files)} guideline document(s) processed successfully!")
 
-# Customer documents uploader
 with col2:    
     customer_files = st.file_uploader(
         "💼 Upload Customer Financial Documents",
@@ -916,10 +867,8 @@ with col2:
             for file in customer_files:
                 file_path = upload_pdf(file, customer_docs_directory)
                 
-                # Use improved document processing flow
                 documents = load_customer_pdf_with_vision(file_path)
                 
-                # Count scanned documents
                 if any(doc.metadata.get("extraction_method") == "google_vision" for doc in documents):
                     scanned_count += 1
                 
@@ -956,7 +905,6 @@ with col2:
             
             st.success(success_msg)
 
-# Status display
 if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
     st.success("🎉 All documents loaded! Enhanced table extraction and Vision API ready for financial analysis.")
 elif st.session_state.guidelines_loaded:
@@ -991,12 +939,10 @@ if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
         )
         st.session_state.policy_type = policy_type
     
-    # Display current multiplier
     if customer_age:
         multiplier = get_income_multiplier(customer_age, policy_type)
         st.info(f"📊 Current Income Multiplier: **{multiplier}x** (Age: {customer_age}, Policy: {policy_type})")
 
-# Analysis interface
 if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
     st.markdown("---")
     st.markdown("### 🔍 Enhanced Financial Analysis with Table Data & Vision OCR")
@@ -1050,7 +996,6 @@ if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
         
             st.session_state.conversation_history.append({"role": "assistant", "content": answer})
     
-    # Display conversation history
     for message in st.session_state.conversation_history:
         if message["role"] == "user":
             st.chat_message("user").write(message["content"])
