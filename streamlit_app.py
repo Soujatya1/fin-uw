@@ -951,7 +951,7 @@ customer_docs_vector_store = InMemoryVectorStore(embeddings)
 
 model = ChatGroq(
     groq_api_key="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", 
-    model_name="compound-beta", 
+    model_name="meta-llama/llama-guard-4-12b", 
     temperature=0.3
 )
 
