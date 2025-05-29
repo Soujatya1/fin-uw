@@ -637,7 +637,6 @@ CRITICAL INSTRUCTIONS:
 4. When asked about specific values like "Investment Amount", look for exact matches in both text and table format
 5. If you cannot find specific information, clearly state what information is missing
 6. Always quote the exact text/numbers from the documents when available
-7. For tabular data, reference the table number and page for traceability
 
 DOCUMENT ANALYSIS FOCUS:
 - Salary slips: Basic pay, gross salary, net salary, deductions, allowances (often in tabular format)
