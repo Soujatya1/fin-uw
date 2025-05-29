@@ -1,4 +1,3 @@
-
 import streamlit as st
 import os
 import re
@@ -683,6 +682,8 @@ def extract_financial_info(documents):
 comprehensive_template = """
 You are an expert Financial Underwriting AI Assistant specialized in insurance policy underwriting. Your primary task is to analyze customer financial documents and calculate financial viability using the EXACT methods specified in the underwriting guidelines for each document type.
 
+IMPORTANT: PLEASE DO CORRECT CALCULATIONS
+
 **CRITICAL WORKFLOW - FOLLOW THESE STEPS IN ORDER:**
 
 **STEP 1: DOCUMENT TYPE IDENTIFICATION**
@@ -836,6 +837,7 @@ Provide detailed analysis including:
 specific_template = """
 You are a financial underwriting expert. Answer the specific question asked based on the customer's financial documents and underwriting guidelines. 
 IMPORTANT: Mention the customer financial document type.
+IMPORTANT: PLEASE DO CORRECT CALCULATIONS
 
 **Customer Information:**
 - Age: {customer_age} years
@@ -951,7 +953,7 @@ customer_docs_vector_store = InMemoryVectorStore(embeddings)
 
 model = ChatGroq(
     groq_api_key="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", 
-    model_name="meta-llama/llama-guard-4-12b", 
+    model_name="meta-llama/llama-4-scout-17b-16e-instruct", 
     temperature=0.3
 )
 
