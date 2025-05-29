@@ -33,90 +33,6 @@ st.set_page_config(
 
 st.title("💰 Financial Underwriting Assistant")
 
-class DocumentTypeClassifier:
-    def __init__(self):
-        self.document_patterns = {
-            'bank_statement': [
-                r'bank\s*statement', r'account\s*statement', r'statement\s*of\s*account',
-                r'opening\s*balance', r'closing\s*balance', r'credit\s*amount', r'debit\s*amount',
-                r'transaction\s*date', r'cheque\s*no', r'reference\s*number', r'current\s*balance',
-                r'savings\s*account', r'account\s*number', r'ifsc\s*code', r'branch\s*name'
-            ],
-            'credit_card': [
-                r'credit\s*card\s*statement', r'card\s*statement', r'credit\s*limit',
-                r'available\s*credit', r'minimum\s*amount\s*due', r'total\s*amount\s*due',
-                r'payment\s*due\s*date', r'card\s*number', r'previous\s*balance',
-                r'reward\s*points', r'cash\s*advance', r'finance\s*charges'
-            ],
-            'itr': [
-                r'income\s*tax\s*return', r'itr[-\s]?[1-7]', r'assessment\s*year',
-                r'financial\s*year', r'total\s*income', r'tax\s*payable', r'refund',
-                r'section\s*80c', r'salary\s*income', r'house\s*property\s*income',
-                r'capital\s*gains', r'other\s*sources', r'acknowledgment\s*number'
-            ],
-            'form_16': [
-                r'form\s*16', r'tds\s*certificate', r'tax\s*deducted\s*at\s*source',
-                r'employer\s*name', r'employee\s*name', r'pan\s*of\s*employee',
-                r'tan\s*of\s*deductor', r'gross\s*salary', r'professional\s*tax',
-                r'provident\s*fund', r'income\s*tax\s*deducted', r'net\s*salary'
-            ],
-            'salary_slip': [
-                r'salary\s*slip', r'pay\s*slip', r'payslip', r'salary\s*statement',
-                r'basic\s*salary', r'basic\s*pay', r'gross\s*salary', r'net\s*salary',
-                r'hra', r'house\s*rent\s*allowance', r'conveyance\s*allowance',
-                r'medical\s*allowance', r'pf\s*deduction', r'esi\s*deduction',
-                r'employee\s*id', r'pay\s*period', r'ctc'
-            ]
-        }
-    
-    def classify_document(self, text_content: str, filename: str = "") -> str:
-        """Classify document type based on content and filename"""
-        text_lower = text_content.lower()
-        filename_lower = filename.lower()
-        
-        # Check filename first for quick classification
-        filename_scores = {}
-        for doc_type, patterns in self.document_patterns.items():
-            filename_score = sum(1 for pattern in patterns if re.search(pattern, filename_lower))
-            if filename_score > 0:
-                filename_scores[doc_type] = filename_score
-        
-        # Check content patterns
-        content_scores = {}
-        for doc_type, patterns in self.document_patterns.items():
-            content_score = sum(1 for pattern in patterns if re.search(pattern, text_lower))
-            content_scores[doc_type] = content_score
-        
-        # Combine scores (content weighted higher than filename)
-        combined_scores = {}
-        all_doc_types = set(list(filename_scores.keys()) + list(content_scores.keys()))
-        
-        for doc_type in all_doc_types:
-            combined_scores[doc_type] = (
-                content_scores.get(doc_type, 0) * 3 +  # Content weighted 3x
-                filename_scores.get(doc_type, 0) * 1    # Filename weighted 1x
-            )
-        
-        # Return the document type with highest score, or 'unknown' if no matches
-        if combined_scores:
-            best_match = max(combined_scores.items(), key=lambda x: x[1])
-            if best_match[1] > 0:
-                return best_match[0]
-        
-        return 'unknown'
-    
-    def get_document_type_display_name(self, doc_type: str) -> str:
-        """Convert internal document type to display name"""
-        display_names = {
-            'bank_statement': '🏦 Bank Statement',
-            'credit_card': '💳 Credit Card Record',
-            'itr': '📋 ITR (Income Tax Return)',
-            'form_16': '📄 Form 16',
-            'salary_slip': '💼 Salary Slip',
-            'unknown': '❓ Unknown Document'
-        }
-        return display_names.get(doc_type, '❓ Unknown Document')
-
 class PIIShield:
     def __init__(self):
         self.pii_patterns = {
@@ -351,10 +267,8 @@ def create_excel_export(extracted_data, filename="financial_data_export.xlsx"):
     buffer.seek(0)
     return buffer
 
-# Initialize instances
 pii_shield = PIIShield()
 financial_extractor = FinancialDataExtractor()
-doc_classifier = DocumentTypeClassifier()
 
 def setup_vision_client():
     """Setup Google Vision client with API key"""
@@ -528,7 +442,7 @@ def format_table_for_llm(df: pd.DataFrame, table_info: dict) -> str:
     table_text += "--- END TABLE ---\n"
     return table_text
 
-def load_customer_pdf_with_vision(file_path, filename=""):
+def load_customer_pdf_with_vision(file_path):
     """Load customer PDF: First try pdfplumber, then Vision API for scanned documents"""
     
     # First, try regular extraction with pdfplumber
@@ -536,31 +450,22 @@ def load_customer_pdf_with_vision(file_path, filename=""):
     
     # Check if we got meaningful content
     has_meaningful_content = False
-    all_text_content = ""
-    
     for content in document_content:
         if content["type"] == "text" and len(content["content"].strip()) > 50:
             has_meaningful_content = True
-            all_text_content += content["content"] + " "
+            break
         elif content["type"] == "table" and not content["dataframe"].empty:
             has_meaningful_content = True
-            all_text_content += content["dataframe"].to_string() + " "
-    
-    # Classify document type based on all extracted content
-    doc_type = doc_classifier.classify_document(all_text_content, filename)
+            break
     
     # If no meaningful content found, treat as scanned and use Vision API
     if not has_meaningful_content:
         st.info(f"📸 Document appears to be scanned. Using Google Vision API for text extraction...")
         vision_documents = extract_text_with_vision(file_path)
         if vision_documents:
-            # Add document type to vision documents
-            for doc in vision_documents:
-                doc.metadata["document_type"] = doc_type
-            return vision_documents, doc_type
+            return vision_documents
         else:
             st.warning("Vision API failed, using available content from pdfplumber...")
-            # Fall through to use pdfplumber content even if minimal
     
     # Convert pdfplumber results to Document objects
     documents = []
@@ -571,8 +476,7 @@ def load_customer_pdf_with_vision(file_path, filename=""):
                 metadata={
                     "source": file_path,
                     "page": content["page"],
-                    "type": "text",
-                    "document_type": doc_type
+                    "type": "text"
                 }
             )
             documents.append(doc)
@@ -585,14 +489,12 @@ def load_customer_pdf_with_vision(file_path, filename=""):
                     "source": file_path,
                     "page": content["page"],
                     "type": "table",
-                    "table_number": content["table_number"],
-                    "document_type": doc_type
+                    "table_number": content["table_number"]
                 }
             )
             documents.append(doc)
     
-    # Always return tuple (documents, doc_type)
-    return documents, doc_type
+    return documents
 
 def load_pdf_with_tables(file_path):
     """Load PDF with tables for guidelines (uses regular pdfplumber extraction)"""
@@ -930,28 +832,19 @@ with col2:
         key="customer_uploader",
         help="Supports both regular PDFs and scanned documents (using Google Vision API)"
     )
-    if "processed_files" not in st.session_state:
-        st.session_state.processed_files = []
+    
     if customer_files:
         with st.spinner("Processing customer documents with enhanced table extraction and Vision API..."):
             all_customer_docs = []
             table_count = 0
             tables_by_page = {}
             scanned_count = 0
-            processed_files = []
             
             for file in customer_files:
                 file_path = upload_pdf(file, customer_docs_directory)
                 
-                # Use improved document processing flow - now properly unpacking tuple
-                documents, doc_type = load_customer_pdf_with_vision(file_path, file.name)
-                
-                # Store file info with detected document type
-                processed_files.append({
-                    'filename': file.name,
-                    'doc_type': doc_type,
-                    'display_name': doc_classifier.get_document_type_display_name(doc_type)
-                })
+                # Use improved document processing flow
+                documents = load_customer_pdf_with_vision(file_path)
                 
                 # Count scanned documents
                 if any(doc.metadata.get("extraction_method") == "google_vision" for doc in documents):
@@ -976,9 +869,6 @@ with col2:
                 "tables_by_page": tables_by_page
             }
             
-            # Store processed files in session state
-            st.session_state.processed_files = processed_files
-            
             customer_docs_vector_store.add_documents(all_customer_docs)
             st.session_state.customer_docs_loaded = True
             
@@ -992,14 +882,6 @@ with col2:
                 success_msg += f" 🛡️ {len(pii_shield.replacement_map)} PII elements anonymized!"
             
             st.success(success_msg)
-            st.markdown("#### 📋 Detected Document Types:")
-            for file_info in processed_files:
-                st.write(f"• **{file_info['filename']}**: {file_info['display_name']}")
-                
-     if st.session_state.get("processed_files"):
-         st.markdown("#### 📋 Detected Document Types:")
-         for file_info in st.session_state.processed_files:
-             st.write(f"• **{file_info['filename']}**: {file_info['display_name']}")
 
 # Status display
 if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
