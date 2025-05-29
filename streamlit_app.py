@@ -33,6 +33,66 @@ st.set_page_config(
 
 st.title("💰 Financial Underwriting Assistant")
 
+# NEW: Add Term/Age selection interface
+st.markdown("### 📋 Policy Configuration")
+col1, col2 = st.columns(2)
+
+with col1:
+    policy_type = st.selectbox(
+        "Select Policy Type",
+        options=["Term", "Non-Term"],
+        key="policy_type"
+    )
+
+with col2:
+    customer_age = st.number_input(
+        "Customer Age",
+        min_value=18,
+        max_value=100,
+        value=30,
+        key="customer_age"
+    )
+
+# NEW: Function to get income multiplier based on policy type and age
+def get_income_multiplier(policy_type: str, age: int) -> int:
+    """Get income multiplier based on policy type and customer age"""
+    if policy_type == "Term":
+        if 18 <= age <= 30:
+            return 25
+        elif 31 <= age <= 35:
+            return 25
+        elif 36 <= age <= 40:
+            return 20
+        elif 41 <= age <= 45:
+            return 15
+        elif 46 <= age <= 50:
+            return 12
+        elif 51 <= age <= 55:
+            return 10
+        elif age >= 56:
+            return 5
+    else:  # Non-Term
+        if 18 <= age <= 30:
+            return 35
+        elif 31 <= age <= 35:
+            return 30
+        elif 36 <= age <= 40:
+            return 25
+        elif 41 <= age <= 45:
+            return 20
+        elif 46 <= age <= 50:
+            return 15
+        elif 51 <= age <= 65:
+            return 10
+        elif age > 65:
+            return 5
+    
+    return 5  # Default fallback
+
+# Display current configuration
+current_multiplier = get_income_multiplier(policy_type, customer_age)
+st.info(f"🔢 Current Configuration: {policy_type} Policy, Age {customer_age} → Income Multiplier: {current_multiplier}x")
+
 class PIIShield:
     def __init__(self):
         self.pii_patterns = {
@@ -571,12 +631,22 @@ def extract_financial_info(documents):
     
     return relevant_chunks
 
+# MODIFIED: Updated template to include policy configuration and financial viability calculation
 comprehensive_template = """
 Hello, AI Financial Underwriting Assistant. You are a specialized AI agent with expertise in financial underwriting for insurance products. Your role is to analyze customer financial documents and assess their financial viability for insurance policies based on the provided underwriting guidelines.
+
+POLICY CONFIGURATION:
+- Policy Type: {policy_type}
+- Customer Age: {customer_age} years
+- Income Multiplier: {income_multiplier}x
+
 IMPORTANT: Mention the customer financial document type
 IMPORTANT: All customer data has been anonymized for privacy protection. Use anonymized identifiers in your analysis.
 
-If you find multiple monthly salaries of a customer, calculate the average and multiply the same with "Income Multiplier" as mentioned in the Age-Based Income Multipliers table in the {guidelines_context}, and show it as "Financial Viability"
+FINANCIAL VIABILITY CALCULATION:
+If you find multiple monthly salaries of a customer, calculate the average monthly salary and multiply it by the Income Multiplier ({income_multiplier}x) to determine the "Financial Viability" amount.
+
+Formula: Average Monthly Salary × {income_multiplier} = Financial Viability Amount
 
 CRITICAL INSTRUCTIONS:
 1. CAREFULLY READ through ALL the provided customer financial documents including both text and tables
@@ -586,6 +656,7 @@ CRITICAL INSTRUCTIONS:
 5. If you cannot find specific information, clearly state what information is missing
 6. Always quote the exact text/numbers from the documents when available
 7. For tabular data, reference the table number and page for traceability
+8. Calculate Financial Viability using the provided multiplier when salary information is available
 
 DOCUMENT ANALYSIS FOCUS:
 - Salary slips: Basic pay, gross salary, net salary, deductions, allowances (often in tabular format)
@@ -611,6 +682,7 @@ Your analysis should focus on:
 - Premium Affordability Analysis
 
 **Financial Viability Determination:**
+- Calculate Financial Viability using: Average Monthly Salary × {income_multiplier} = Financial Viability Amount
 - Determine if the customer can afford the proposed insurance premium
 - Assess long-term financial sustainability
 - Calculate recommended coverage amounts based on financial capacity
@@ -640,9 +712,21 @@ Customer Financial Documents: {customer_context}
 Answer:
 """
 
+# MODIFIED: Updated specific template to include policy configuration
 specific_template = """
-You are a financial underwriting expert. Answer the specific question asked based on the customer's financial documents and underwriting guidelines. 
-IMPORTANT: Mention the customer financial document type, If you find/asked about, multiple monthly salaries of a customer, calculate the average and multiply the same with "Income Multiplier" as mentioned in the Age-Based Income Multipliers table in the {guidelines_context}, and show it as "Financial Viability"
+You are a financial underwriting expert. Answer the specific question asked based on the customer's financial documents and underwriting guidelines.
+
+POLICY CONFIGURATION:
+- Policy Type: {policy_type}
+- Customer Age: {customer_age} years
+- Income Multiplier: {income_multiplier}x
+
+IMPORTANT: Mention the customer financial document type. 
+
+FINANCIAL VIABILITY CALCULATION:
+If you find/asked about multiple monthly salaries of a customer, calculate the average monthly salary and multiply it by the Income Multiplier ({income_multiplier}x) to show the "Financial Viability" amount.
+
+Formula: Average Monthly Salary × {income_multiplier} = Financial Viability Amount
 
 IMPORTANT: The documents contain both TEXT and TABLE data. Tables are marked with "--- TABLE X (Page Y) ---" headers. Look for specific values in both formats.
 
