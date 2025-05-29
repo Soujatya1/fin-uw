@@ -648,7 +648,7 @@ FINANCIAL VIABILITY CALCULATION:
 If asked about financial viability or if age and policy type information is provided, use these Age-Based Income Multipliers:
 
 **Term Cases:** Age 18-30 = 25, Age 31-35 = 25, Age 36-40 = 20, Age 41-45 = 15, Age 46-50 = 12, Age 51-55 = 10, Age ≥56 = 5
-**Non-Term Cases:** Age 18-30 = 35, Age 31-35 = 30, Age 36-40 = 25, Age 41-45 = 20, Age 46-50 = 15, Age 51-65 = 10, Age >65 = 5
+**Non-Term Cases:** Age 18-30 = 35, Age 31-35 = 30, Age 36-40 = 25, Age 41-45 = 20, Age 46-50 = 15, Age 51-65 = 10, Age >65 = 6
 
 **Formula:** Monthly Income × 12 × Income Multiplier = Financial Viability
 
