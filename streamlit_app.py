@@ -930,9 +930,9 @@ with col2:
         key="customer_uploader",
         help="Supports both regular PDFs and scanned documents (using Google Vision API)"
     )
-     if "processed_files" not in st.session_state:
+    if "processed_files" not in st.session_state:
         st.session_state.processed_files = []
-     if customer_files:
+    if customer_files:
         with st.spinner("Processing customer documents with enhanced table extraction and Vision API..."):
             all_customer_docs = []
             table_count = 0
