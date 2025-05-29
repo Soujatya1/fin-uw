@@ -909,7 +909,7 @@ Apply the exact formula for the identified document type using actual values fro
 
 IMPORTANT: The documents contain both TEXT and TABLE data.
 
-CRITICAL: Please search carefully in both text content and tabular data. Financial documents often have key information in table format.
+CRITICAL: Please search carefully in both text content and tabular data. Financial documents often have key information in table format. Also, do not mention steps in the output.
 
 Be concise and specific. Only provide the information directly relevant to the question asked. If you find the information in a table, mention the table number and page.
 
