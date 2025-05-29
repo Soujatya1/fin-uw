@@ -787,6 +787,20 @@ with st.sidebar:
                 st.write(f"• {pii_type.replace('_', ' ').title()}: {count} instances")
     else:
         st.warning("⚠️ PII Shield Disabled - Use with caution!")
+
+    if st.session_state.extracted_financial_data:
+        st.markdown("### 📊 Export Status")
+        data_summary = []
+        for category, items in st.session_state.extracted_financial_data.items():
+            if items and category != 'raw_text_data':
+                data_summary.append(f"• {category.replace('_', ' ').title()}: {len(items)} items")
+        
+        if data_summary:
+            st.success("Data ready for export:")
+            for summary in data_summary:
+                st.write(summary)
+        else:
+            st.info("No financial data extracted yet")
     
     # Vision API Status
     st.markdown("### 📸 Google Vision Status")
@@ -891,6 +905,10 @@ with col2:
                 success_msg += f" 🛡️ {len(pii_shield.replacement_map)} PII elements anonymized!"
             
             st.success(success_msg)
+            
+            financial_extractor = FinancialDataExtractor()
+            extracted_data = financial_extractor.extract_from_documents(all_customer_docs)
+            st.session_state.extracted_financial_data = extracted_data
 
 # Status display
 if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
@@ -901,6 +919,34 @@ elif st.session_state.customer_docs_loaded:
     st.warning("Customer documents loaded. Please upload underwriting guidelines.")
 else:
     st.info("📤 Please upload both guidelines and customer financial documents to begin analysis.")
+
+if st.session_state.customer_docs_loaded and st.session_state.extracted_financial_data:
+    st.markdown("---")
+    st.markdown("### 📥 Export Customer Financial Data")
+    
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.write("Export extracted financial data from customer documents to Excel format")
+    
+    with col2:
+        if st.button("📊 Download XLSX", use_container_width=True):
+            with st.spinner("Generating Excel export..."):
+                try:
+                    excel_buffer = create_excel_export(
+                        st.session_state.extracted_financial_data,
+                        f"financial_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+                    )
+                    
+                    st.download_button(
+                        label="💾 Download Financial Data",
+                        data=excel_buffer.getvalue(),
+                        file_name=f"customer_financial_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+                    st.success("✅ Excel file ready for download!")
+                except Exception as e:
+                    st.error(f"Error generating Excel file: {str(e)}")
 
 # Analysis interface
 if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
