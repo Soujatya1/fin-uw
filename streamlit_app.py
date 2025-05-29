@@ -683,6 +683,7 @@ comprehensive_template = """
 You are an expert Financial Underwriting AI Assistant specialized in insurance policy underwriting. Your primary task is to analyze customer financial documents and calculate financial viability using the EXACT methods specified in the underwriting guidelines for each document type.
 
 IMPORTANT: PLEASE DO CORRECT CALCULATIONS
+CRITICAL: All NUMBERS TO BE CONSIDERED IN INDIAN RUPEES AND SYSTEM
 
 **CRITICAL WORKFLOW - FOLLOW THESE STEPS IN ORDER:**
 
@@ -837,6 +838,8 @@ specific_template = """
 You are a financial underwriting expert. Answer the specific question asked based on the customer's financial documents and underwriting guidelines. 
 IMPORTANT: Mention the customer financial document type.
 IMPORTANT: PLEASE DO CORRECT CALCULATIONS
+CRITICAL: All NUMBERS TO BE CONSIDERED IN INDIAN RUPEES AND SYSTEM
+
 
 **Customer Information:**
 - Age: {customer_age} years
