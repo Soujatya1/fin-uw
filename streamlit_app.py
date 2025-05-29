@@ -583,7 +583,7 @@ Hello, AI Financial Underwriting Assistant. You are a specialized AI agent with 
 
 2. **SECOND STEP - GUIDELINE TABLE REFERENCE:**
    - Search the underwriting guidelines for tables that contain calculation methods for the identified document type
-   - Look for tables with columns like "Document Type", "Calculation Method", "Formula", "Multiplier", etc.
+   - Look for tables with columns like "Financial Documents", "Calculation Logic (Term)", "Sample Illustration", "Calculation Logic (Non -Term)", "Sample Illustration".
    - Reference the specific table number, page number, and section from guidelines
    - Quote the exact calculation formula from the guideline table
 
