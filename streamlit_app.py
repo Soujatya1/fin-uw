@@ -842,9 +842,69 @@ IMPORTANT: Mention the customer financial document type.
 - Policy Type: {policy_type}
 - Income Multiplier: {income_multiplier}x
 
-FINANCIAL VIABILITY CALCULATION:
-Formula: Monthly Income × 12 × {income_multiplier} = Financial Viability
-(This multiplier is age and policy-type specific)
+Based on the identified document type, customer age ({customer_age}), and policy type ({policy_type}), extract the EXACT calculation method from the guidelines.
+
+**From the Guidelines Document, use these SPECIFIC formulas:**
+
+**For Salary Slips:**
+- Term Cases: Annual Salary = Gross Monthly Salary × 12; Financial Viability = Annual Salary × Income Multiplier
+- Non-Term Cases: Annual Salary = Gross Monthly Salary × 12; Annual Bonus = Annual Salary × 0.10; Total = Annual Salary + Annual Bonus; Financial Viability = Total × Income Multiplier
+
+**For Bank Statement (Salaried):**
+- Term Cases: Average Monthly Salary (last 3 months) × 12; Add 30% to get Gross Annual Salary; Financial Viability = Gross Annual Salary × Age-based Multiplier
+- Non-Term Cases: Average Monthly Salary (last 6 months) × 12; Financial Viability = Annual Income × Age-based Multiplier
+
+**For Bank Statement (Closing Balance):**
+- Term Cases: Average Closing Balance (last 3 months) × 12; Financial Viability = Annual Average Income × Age-based Multiplier
+
+**For ITR & COI:**
+- Term Cases: Only Earned Income (exclude unearned); Financial Viability = Total Earned Income × Age-based Multiplier
+- Non-Term Cases: Include ALL income types (earned + unearned); Financial Viability = Total Income × Age-based Multiplier
+
+**For Form 16:**
+- Term Cases: Gross Income from Part A; Financial Viability = Annual Income × Age-based Multiplier
+
+**For Mutual Fund Statement - SIP:**
+- Term Cases: Monthly SIP × 12 = Annual Income; Financial Viability = Annual Income × Age-based Multiplier
+
+**For Credit Card Statements:**
+- Term Cases: Monthly CC Statement Value × 6 = Annual Income; Financial Viability = Annual Income × Age-based Multiplier
+
+**For Car Ownership:**
+- Term Cases: Car IDV Value × 2 = Annual Income; Financial Viability = Annual Income × Age-based Multiplier
+
+**For Fixed Deposits:**
+- Term Cases: Investment Value × 0.05 = Estimated Annual Income; Financial Viability = Annual Income × Age-based Multiplier
+
+**For Home Loan:**
+- Term Cases: Monthly EMI × 24 = Annual Income; Financial Viability = Annual Income × Age-based Multiplier
+
+**For House/Shop Ownership:**
+- Term Cases: Financial Viability = Property Value × 0.50
+
+**STEP 3: AGE-BASED MULTIPLIER SELECTION**
+Use the correct age-based multiplier from guidelines:
+
+**Term Cases Multipliers:**
+- Age 18-30: 25x
+- Age 31-35: 25x  
+- Age 36-40: 20x
+- Age 41-45: 15x
+- Age 46-50: 12x
+- Age 51-55: 10x
+- Age ≥56: 5x
+
+**Non-Term Cases Multipliers:**
+- Age 18-30: 35x
+- Age 31-35: 30x
+- Age 36-40: 25x
+- Age 41-45: 20x
+- Age 46-50: 15x
+- Age 51-65: 10x
+- Age >65: 6x
+
+**STEP 4: PRECISE CALCULATION**
+Apply the exact formula for the identified document type using actual values from customer documents.
 
 IMPORTANT: The documents contain both TEXT and TABLE data.
 
