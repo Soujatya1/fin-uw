@@ -884,7 +884,7 @@ Based on the identified document type, customer age ({customer_age}), and policy
 **For House/Shop Ownership:**
 - Term Cases: Financial Viability = Property Value × 0.50
 
-**STEP 3: AGE-BASED MULTIPLIER SELECTION**
+AGE-BASED MULTIPLIER SELECTION**
 Use the correct age-based multiplier from guidelines:
 
 **Term Cases Multipliers:**
@@ -905,7 +905,7 @@ Use the correct age-based multiplier from guidelines:
 - Age 51-65: 10x
 - Age >65: 6x
 
-**STEP 4: PRECISE CALCULATION**
+PRECISE CALCULATION**
 Apply the exact formula for the identified document type using actual values from customer documents.
 
 IMPORTANT: The documents contain both TEXT and TABLE data.
