@@ -809,7 +809,6 @@ Provide detailed analysis including:
 - Premium Affordability: [Based on calculated viability]
 
 **Final Recommendation:**
-- Recommended Coverage: ₹[Amount based on guideline calculation]
 - Policy Eligibility: Approved/Conditional/Declined
 - Justification: [Why this specific calculation method was used]
 
