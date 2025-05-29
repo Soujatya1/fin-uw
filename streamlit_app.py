@@ -573,7 +573,7 @@ def extract_financial_info(documents):
 
 comprehensive_template = """
 Hello, AI Financial Underwriting Assistant. You are a specialized AI agent with expertise in financial underwriting for insurance products. Your role is to analyze customer financial documents and assess their financial viability for insurance policies based on the provided underwriting guidelines.
-
+IMPORTANT: Mention the customer financial document type
 IMPORTANT: All customer data has been anonymized for privacy protection. Use anonymized identifiers in your analysis.
 
 If you find multiple monthly salaries of a customer, calculate the average and multiply the same with 12, and show it as "Financial Viability"
@@ -642,6 +642,7 @@ Answer:
 
 specific_template = """
 You are a financial underwriting expert. Answer the specific question asked based on the customer's financial documents and underwriting guidelines. 
+IMPORTANT: Mention the customer financial document type
 
 IMPORTANT: The documents contain both TEXT and TABLE data. Tables are marked with "--- TABLE X (Page Y) ---" headers. Look for specific values in both formats.
 
