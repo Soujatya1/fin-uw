@@ -365,14 +365,22 @@ def extract_text_with_vision(pdf_path):
         return []
 
 def is_scanned_pdf(pdf_path):
+    """Enhanced detection for scanned vs digital PDFs"""
     try:
         with pdfplumber.open(pdf_path) as pdf:
             total_text = ""
-            for page in pdf.pages[:3]:
+            total_chars = 0
+            pages_checked = min(3, len(pdf.pages))  # Check first 3 pages or all if fewer
+            
+            for page in pdf.pages[:pages_checked]:
                 text = page.extract_text() or ""
                 total_text += text
+                total_chars += len(text.strip())
             
-            return len(total_text.strip()) < 100
+            # More sophisticated detection
+            # Consider it scanned if very little text per page
+            avg_chars_per_page = total_chars / pages_checked if pages_checked > 0 else 0
+            return avg_chars_per_page < 50
     except:
         return True
 
@@ -450,26 +458,83 @@ def format_table_for_llm(df: pd.DataFrame, table_info: dict) -> str:
     return table_text
 
 def load_customer_pdf_with_vision(file_path):
-    
+    """Enhanced function to handle mixed PDF types"""
+    # First, try normal extraction
     document_content = extract_tables_from_pdf(file_path)
     
-    has_meaningful_content = False
-    for content in document_content:
-        if content["type"] == "text" and len(content["content"].strip()) > 50:
-            has_meaningful_content = True
-            break
-        elif content["type"] == "table" and not content["dataframe"].empty:
-            has_meaningful_content = True
-            break
+    # Analyze extraction quality per page
+    page_extraction_quality = {}
+    total_meaningful_content = False
     
-    if not has_meaningful_content:
-        st.info(f"📸 Document appears to be scanned. Using Google Vision API for text extraction...")
+    for content in document_content:
+        page_num = content["page"]
+        if content["type"] == "text":
+            text_length = len(content["content"].strip())
+            page_extraction_quality[page_num] = text_length
+            if text_length > 50:
+                total_meaningful_content = True
+        elif content["type"] == "table" and not content["dataframe"].empty:
+            page_extraction_quality[page_num] = page_extraction_quality.get(page_num, 0) + 100  # Boost for tables
+            total_meaningful_content = True
+    
+    # Identify pages that need OCR (low text extraction)
+    pages_needing_ocr = []
+    for page_num, quality in page_extraction_quality.items():
+        if quality < 30:  # Threshold for poor extraction
+            pages_needing_ocr.append(page_num)
+    
+    # If no meaningful content at all, use OCR for entire document
+    if not total_meaningful_content:
+        st.info(f"📸 Document appears to be entirely scanned. Using Google Vision API...")
         vision_documents = extract_text_with_vision(file_path)
         if vision_documents:
             return vision_documents
         else:
             st.warning("Vision API failed, using available content from pdfplumber...")
     
+    # For mixed documents, use OCR only for problematic pages
+    elif pages_needing_ocr:
+        st.info(f"📸 Using OCR for pages with poor text extraction: {pages_needing_ocr}")
+        vision_documents = extract_text_with_vision_selective(file_path, pages_needing_ocr)
+        
+        # Merge OCR results with regular extraction
+        documents = []
+        ocr_pages = {doc.metadata["page"]: doc for doc in vision_documents}
+        
+        for content in document_content:
+            page_num = content["page"]
+            
+            # Use OCR version if available and original extraction was poor
+            if page_num in ocr_pages and page_num in pages_needing_ocr:
+                documents.append(ocr_pages[page_num])
+            else:
+                # Use regular extraction
+                if content["type"] == "text":
+                    doc = Document(
+                        page_content=content["content"],
+                        metadata={
+                            "source": file_path,
+                            "page": content["page"],
+                            "type": "text"
+                        }
+                    )
+                    documents.append(doc)
+                elif content["type"] == "table":
+                    table_text = format_table_for_llm(content["dataframe"], content)
+                    doc = Document(
+                        page_content=table_text,
+                        metadata={
+                            "source": file_path,
+                            "page": content["page"],
+                            "type": "table",
+                            "table_number": content["table_number"]
+                        }
+                    )
+                    documents.append(doc)
+        
+        return documents
+    
+    # For documents with good regular extraction, proceed normally
     documents = []
     for content in document_content:
         if content["type"] == "text":
@@ -497,6 +562,50 @@ def load_customer_pdf_with_vision(file_path):
             documents.append(doc)
     
     return documents
+
+def extract_text_with_vision_selective(pdf_path, target_pages=None):
+    """Extract text using Vision API for specific pages only"""
+    vision_client = setup_vision_client()
+    if not vision_client:
+        return []
+    
+    try:
+        images = pdf_to_images(pdf_path)
+        documents = []
+        
+        for img_info in images:
+            # Skip pages not in target list if specified
+            if target_pages and img_info["page"] not in target_pages:
+                continue
+                
+            image = vision.Image(content=img_info["data"])
+            
+            response = vision_client.text_detection(image=image)
+            
+            if response.error.message:
+                st.error(f"Vision API error on page {img_info['page']}: {response.error.message}")
+                continue
+            
+            texts = response.text_annotations
+            if texts:
+                extracted_text = texts[0].description
+                
+                doc = Document(
+                    page_content=extracted_text,
+                    metadata={
+                        "source": pdf_path,
+                        "page": img_info["page"],
+                        "type": "scanned_text",
+                        "extraction_method": "google_vision"
+                    }
+                )
+                documents.append(doc)
+        
+        return documents
+        
+    except Exception as e:
+        st.error(f"Error with Google Vision API: {str(e)}")
+        return []
 
 def load_pdf_with_tables(file_path):
     document_content = extract_tables_from_pdf(file_path)
