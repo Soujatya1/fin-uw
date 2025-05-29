@@ -574,6 +574,7 @@ comprehensive_template = """
 Hello, AI Financial Underwriting Assistant. You are a specialized AI agent with expertise in financial underwriting for insurance products. Your role is to analyze customer financial documents and assess their financial viability for insurance policies based on the provided underwriting guidelines.
 IMPORTANT: Mention the customer financial document type
 IMPORTANT: All customer data has been anonymized for privacy protection. Use anonymized identifiers in your analysis.
+IMPORTANT: For Financial Viability calculation for different document types, the criteria and the calculation logics are mentioned in the underwriting guideline documents, please refer to the same.
 
 **Customer Information:**
 - Age: {customer_age} years
