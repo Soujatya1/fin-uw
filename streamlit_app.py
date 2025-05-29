@@ -377,9 +377,61 @@ def is_scanned_pdf(pdf_path):
     except:
         return True
 
-def is_page_scanned(page_text: str, min_threshold: int = 50) -> bool:
-    """Check if a specific page appears to be scanned based on text content"""
-    return len(page_text.strip()) < min_threshold
+def is_page_scanned(pdf_path: str, page_num: int, page_text: str = None) -> bool:
+    """
+    Robust method to detect if a page is scanned using multiple indicators:
+    1. Check if page is mostly covered by images
+    2. Check text density and quality
+    3. Check for embedded fonts
+    """
+    try:
+        # Method 1: Check image coverage using PyMuPDF
+        import fitz
+        doc = fitz.open(pdf_path)
+        page = doc.load_page(page_num - 1)  # Convert to 0-based index
+        
+        # Get page dimensions
+        page_rect = page.rect
+        page_area = page_rect.width * page_rect.height
+        
+        # Get all images on the page
+        image_list = page.get_images()
+        total_image_area = 0
+        
+        for img_index, img in enumerate(image_list):
+            # Get image rectangles
+            img_rects = page.get_image_rects(img[0])
+            for rect in img_rects:
+                total_image_area += rect.width * rect.height
+        
+        doc.close()
+        
+        # If images cover more than 80% of the page, likely scanned
+        image_coverage_ratio = total_image_area / page_area if page_area > 0 else 0
+        
+        # Method 2: Check text characteristics
+        text_density = len(page_text.strip()) if page_text else 0
+        has_meaningful_text = text_density > 100
+        
+        # Method 3: Check for searchable text vs image-based content
+        words_per_area = text_density / page_area * 10000 if page_area > 0 else 0
+        
+        # Decision logic:
+        # - High image coverage (>80%) = likely scanned
+        # - Very low text density (<50 chars) = likely scanned  
+        # - Very low words per area (<5) = likely scanned
+        is_scanned = (
+            image_coverage_ratio > 0.8 or 
+            text_density < 50 or 
+            words_per_area < 5
+        )
+        
+        return is_scanned
+        
+    except Exception as e:
+        # Fallback to simple text-based detection
+        text_density = len(page_text.strip()) if page_text else 0
+        return text_density < 50
 
 def extract_tables_from_pdf(file_path):
     document_content = []
@@ -459,44 +511,60 @@ def load_customer_pdf_with_vision(file_path):
     # Extract content using pdfplumber first
     document_content = extract_tables_from_pdf(file_path)
     
-    # Identify which pages need OCR processing
-    scanned_pages = []
+    # Analyze each page to determine if it's scanned or digital
+    page_analysis = {}
+    scanned_pages = set()
     digital_documents = []
     
+    # First pass: Analyze all pages
     for content in document_content:
+        page_num = content["page"]
+        if page_num not in page_analysis:
+            page_text = content["content"] if content["type"] == "text" else ""
+            is_scanned = is_page_scanned(file_path, page_num, page_text)
+            page_analysis[page_num] = is_scanned
+            
+            if is_scanned:
+                scanned_pages.add(page_num)
+    
+    # Second pass: Process content based on page analysis
+    for content in document_content:
+        page_num = content["page"]
+        
         if content["type"] == "text":
-            if is_page_scanned(content["content"]):
-                scanned_pages.append(content["page"])
-            else:
-                # This is a digital page with good text content
+            if not page_analysis.get(page_num, True):  # Digital page
                 doc = Document(
                     page_content=content["content"],
                     metadata={
                         "source": file_path,
-                        "page": content["page"],
+                        "page": page_num,
                         "type": "text"
                     }
                 )
                 digital_documents.append(doc)
+                
         elif content["type"] == "table":
-            # Always include tables from pdfplumber
-            table_text = format_table_for_llm(content["dataframe"], content)
-            doc = Document(
-                page_content=table_text,
-                metadata={
-                    "source": file_path,
-                    "page": content["page"],
-                    "type": "table",
-                    "table_number": content["table_number"]
-                }
-            )
-            digital_documents.append(doc)
+            # Tables can be extracted from both digital and some scanned pages
+            # Only include if from digital pages or if table extraction was successful
+            if not page_analysis.get(page_num, True) or not content["dataframe"].empty:
+                table_text = format_table_for_llm(content["dataframe"], content)
+                doc = Document(
+                    page_content=table_text,
+                    metadata={
+                        "source": file_path,
+                        "page": page_num,
+                        "type": "table",
+                        "table_number": content["table_number"]
+                    }
+                )
+                digital_documents.append(doc)
     
-    # Process scanned pages with Google Vision API if any exist
+    # Process scanned pages with Google Vision API
     vision_documents = []
     if scanned_pages:
         st.info(f"📸 Processing {len(scanned_pages)} scanned page(s) with Google Vision API...")
-        vision_documents = extract_text_with_vision_selective(file_path, scanned_pages)
+        st.info(f"Scanned pages: {sorted(list(scanned_pages))}")
+        vision_documents = extract_text_with_vision_selective(file_path, list(scanned_pages))
     
     # Combine all documents
     all_documents = digital_documents + vision_documents
@@ -505,10 +573,13 @@ def load_customer_pdf_with_vision(file_path):
         st.warning("No content could be extracted from the document.")
         return []
     
-    # Log processing summary
-    digital_count = len(digital_documents)
-    vision_count = len(vision_documents)
-    st.success(f"✅ Processed {digital_count} digital elements and {vision_count} scanned pages")
+    # Log detailed processing summary
+    digital_pages = [p for p, is_scanned in page_analysis.items() if not is_scanned]
+    
+    st.success(f"✅ Page Analysis Complete:")
+    st.info(f"📄 Digital pages: {sorted(digital_pages)} ({len(digital_pages)} pages)")
+    st.info(f"📸 Scanned pages: {sorted(list(scanned_pages))} ({len(scanned_pages)} pages)")
+    st.info(f"📊 Total elements extracted: {len(all_documents)}")
     
     return all_documents
 
