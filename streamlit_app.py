@@ -576,7 +576,14 @@ Hello, AI Financial Underwriting Assistant. You are a specialized AI agent with 
 IMPORTANT: Mention the customer financial document type
 IMPORTANT: All customer data has been anonymized for privacy protection. Use anonymized identifiers in your analysis.
 
-If you find multiple monthly salaries of a customer, calculate the average and multiply the same with "Income Multiplier" as mentioned in the Age-Based Income Multipliers table in the {guidelines_context}, and show it as "Financial Viability"
+**Customer Information:**
+- Age: {customer_age} years
+- Policy Type: {policy_type}
+- Income Multiplier: {income_multiplier}x
+
+**Financial Viability Calculation:**
+Use the formula: Monthly Income × 12 × {income_multiplier} = Financial Viability
+This multiplier is age and policy-type specific as per underwriting guidelines.
 
 **Guideline Compliance Check:**
 - Cross-reference each extracted financial parameter against the provided underwriting guidelines
@@ -623,7 +630,7 @@ Your analysis should focus on:
 **Financial Viability Determination:**
 - Determine if the customer can afford the proposed insurance premium
 - Assess long-term financial sustainability
-- Calculate recommended coverage amounts based on financial capacity
+- Calculate recommended coverage amounts based on financial capacity using the age-specific multiplier
 - Identify any financial red flags or concerns
 
 **Detailed Financial Report:**
@@ -640,7 +647,7 @@ Provide scores in the following format:
 
 **Recommendation:**
 - Policy Eligibility: Approved/Conditional/Declined
-- Recommended Coverage Amount
+- Recommended Coverage Amount (based on Monthly Income × 12 × {income_multiplier})
 - Premium Payment Frequency Recommendation
 - Any additional financial requirements or conditions
 
@@ -654,13 +661,14 @@ specific_template = """
 You are a financial underwriting expert. Answer the specific question asked based on the customer's financial documents and underwriting guidelines. 
 IMPORTANT: Mention the customer financial document type.
 
+**Customer Information:**
+- Age: {customer_age} years
+- Policy Type: {policy_type}
+- Income Multiplier: {income_multiplier}x
+
 FINANCIAL VIABILITY CALCULATION:
-If asked about financial viability or if age and policy type information is provided, use these Age-Based Income Multipliers:
-
-**Term Cases:** Age 18-30 = 25, Age 31-35 = 25, Age 36-40 = 20, Age 41-45 = 15, Age 46-50 = 12, Age 51-55 = 10, Age ≥56 = 5
-**Non-Term Cases:** Age 18-30 = 35, Age 31-35 = 30, Age 36-40 = 25, Age 41-45 = 20, Age 46-50 = 15, Age 51-65 = 10, Age >65 = 6
-
-**Formula:** Monthly Income × 12 × Income Multiplier = Financial Viability
+Formula: Monthly Income × 12 × {income_multiplier} = Financial Viability
+(This multiplier is age and policy-type specific)
 
 IMPORTANT: The documents contain both TEXT and TABLE data. Tables are marked with "--- TABLE X (Page Y) ---" headers. Look for specific values in both formats.
 
@@ -744,6 +752,11 @@ def analyze_customer_finances(question, guidelines_docs, customer_docs):
     
     question_type = determine_question_type(question)
     
+    # Get customer age and policy type from session state
+    customer_age = st.session_state.customer_age or 30  # Default age if not provided
+    policy_type = st.session_state.policy_type or "Term"
+    income_multiplier = get_income_multiplier(customer_age, policy_type)
+    
     if question_type == "comprehensive":
         template = comprehensive_template
     else:
@@ -755,7 +768,10 @@ def analyze_customer_finances(question, guidelines_docs, customer_docs):
     response = chain.invoke({
         "question": question,
         "guidelines_context": guidelines_context,
-        "customer_context": customer_context
+        "customer_context": customer_context,
+        "customer_age": customer_age,
+        "policy_type": policy_type,
+        "income_multiplier": income_multiplier
     })
     
     return response.content
@@ -771,6 +787,10 @@ if "table_stats" not in st.session_state:
     st.session_state.table_stats = {"total_tables": 0, "tables_by_page": {}}
 if "extracted_financial_data" not in st.session_state:
     st.session_state.extracted_financial_data = None
+if "customer_age" not in st.session_state:
+    st.session_state.customer_age = None
+if "policy_type" not in st.session_state:
+    st.session_state.policy_type = "Term"
 
 # Sidebar for settings and status
 with st.sidebar:
@@ -912,6 +932,36 @@ elif st.session_state.customer_docs_loaded:
 else:
     st.info("📤 Please upload both guidelines and customer financial documents to begin analysis.")
 
+if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
+    st.markdown("---")
+    st.markdown("### 👤 Customer Information")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        customer_age = st.number_input(
+            "Customer Age",
+            min_value=18,
+            max_value=80,
+            value=st.session_state.customer_age or 30,
+            help="Required for calculating income multiplier"
+        )
+        st.session_state.customer_age = customer_age
+    
+    with col2:
+        policy_type = st.selectbox(
+            "Policy Type",
+            ["Term", "Non-Term"],
+            index=0 if st.session_state.policy_type == "Term" else 1,
+            help="Policy type affects income multiplier calculation"
+        )
+        st.session_state.policy_type = policy_type
+    
+    # Display current multiplier
+    if customer_age:
+        multiplier = get_income_multiplier(customer_age, policy_type)
+        st.info(f"📊 Current Income Multiplier: **{multiplier}x** (Age: {customer_age}, Policy: {policy_type})")
+
 # Analysis interface
 if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
     st.markdown("---")
@@ -953,13 +1003,17 @@ if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
         st.session_state.conversation_history.append({"role": "user", "content": question})
     
     if st.session_state.conversation_history and st.session_state.conversation_history[-1]["role"] == "user":
+        if st.session_state.customer_age is None:
+            st.warning("⚠️ Please enter customer age before proceeding with analysis.")
+            st.stop()
+    
         with st.spinner("Analyzing financial documents with table data..."):
             latest_question = st.session_state.conversation_history[-1]["content"]
             guidelines_docs = guidelines_vector_store.similarity_search(latest_question, k=5)
             customer_docs = customer_docs_vector_store.similarity_search(latest_question, k=15)  # Increased k to capture more table data
-            
+        
             answer = analyze_customer_finances(latest_question, guidelines_docs, customer_docs)
-            
+        
             st.session_state.conversation_history.append({"role": "assistant", "content": answer})
     
     # Display conversation history
