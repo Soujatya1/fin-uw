@@ -634,6 +634,8 @@ Provide scores in the following format:
 - Premium Payment Frequency Recommendation
 - Any additional financial requirements or conditions
 
+Add any visualizations as you see fit.
+
 Question: {question}
 Context from Guidelines: {guidelines_context}
 Customer Financial Documents: {customer_context}
