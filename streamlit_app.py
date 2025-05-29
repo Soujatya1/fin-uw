@@ -705,7 +705,7 @@ FINANCIAL VIABILITY CALCULATION:
 Formula: Monthly Income × 12 × {income_multiplier} = Financial Viability
 (This multiplier is age and policy-type specific)
 
-IMPORTANT: The documents contain both TEXT and TABLE data. Tables are marked with "--- TABLE X (Page Y) ---" headers. Look for specific values in both formats.
+IMPORTANT: The documents contain both TEXT and TABLE data.
 
 CRITICAL: Please search carefully in both text content and tabular data. Financial documents often have key information in table format.
 
