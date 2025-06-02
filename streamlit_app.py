@@ -681,7 +681,7 @@ IMPORTANT: PLEASE DO CORRECT CALCULATIONS
 IMPORTANT: When bank statements are identified, please consider the salary credited for the last 3 months and do the calculations as stated for Financial Viability
 IMPORTANT: For bank statements, where salary cannot be found, go ahead with the closing balance calculation for Financial Viability 
 CRITICAL: All NUMBERS TO BE CONSIDERED IN INDIAN RUPEES AND SYSTEM, IF ANY OTHER CURRENCY IS DETECTED< PLEASE CONVERT THE SAME INTO INR and THEN CALCULAE THE FINAL FINANCIAL VIABILITY
-CRITICAL: When extracting information from Mutual Fund Statements, try and find out the total Monthly SIP amount for all the funds.
+CRITICAL: When extracting information from Mutual Fund Statements, try and find out the total Monthly SIP amount (in INR) for all the funds.
 
 **CRITICAL WORKFLOW - FOLLOW THESE STEPS IN ORDER:**
 
