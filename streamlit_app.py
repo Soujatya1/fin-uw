@@ -1522,8 +1522,7 @@ def enhanced_risk_assessment_button():
         risk_assess_clicked = st.button("⚖️ Risk Assessment", use_container_width=True)
     
     with col_export:
-        export_clicked = st.button("📄 Export DOCX", use_container_width=True, 
-                                 disabled=len([msg for msg in st.session_state.conversation_history if msg.get("role") == "assistant"]) == 0))
+        export_clicked = st.button("📄 Export DOCX", use_container_width=True)
     
     if risk_assess_clicked:
         st.session_state.conversation_history.append({
