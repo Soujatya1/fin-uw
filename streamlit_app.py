@@ -23,6 +23,12 @@ from datetime import datetime
 import xlsxwriter
 from io import BytesIO
 
+from docx import Document as DocxDocument
+from docx.shared import Inches, Pt
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.table import WD_TABLE_ALIGNMENT
+from docx.oxml.shared import OxmlElement, qn
+
 st.set_page_config(
     page_title="Financial Underwriting Assistant",
     page_icon="💰",
@@ -1056,6 +1062,10 @@ if "groq_api_key" not in st.session_state:
 if "model_initialized" not in st.session_state:
     st.session_state.model_initialized = False
 
+if "last_risk_assessment" not in st.session_state:
+    st.session_state.last_risk_assessment = False
+    
+
 with st.sidebar:
     st.markdown("### 🛡️ PII Protection Settings")
     st.markdown("""
@@ -1252,6 +1262,123 @@ if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
         multiplier = get_income_multiplier(customer_age, policy_type)
         st.info(f"📊 Current Income Multiplier: **{multiplier}x** (Age: {customer_age}, Policy: {policy_type})")
 
+def create_risk_assessment_docx(assessment_content, customer_age, policy_type, filename="risk_assessment_report.docx"):
+    """
+    Create a professionally formatted DOCX document for Risk Assessment
+    """
+    doc = DocxDocument()
+    
+    # Add title
+    title = doc.add_heading('Financial Risk Assessment Report', 0)
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    # Add customer information section
+    doc.add_heading('Customer Information', level=1)
+    customer_info = doc.add_paragraph()
+    customer_info.add_run(f'Customer Age: ').bold = True
+    customer_info.add_run(f'{customer_age} years\n')
+    customer_info.add_run(f'Policy Type: ').bold = True
+    customer_info.add_run(f'{policy_type}\n')
+    customer_info.add_run(f'Report Generated: ').bold = True
+    customer_info.add_run(f'{datetime.now().strftime("%B %d, %Y at %H:%M")}\n')
+    
+    # Add assessment content
+    doc.add_heading('Risk Assessment Analysis', level=1)
+    
+    # Split content into paragraphs and format
+    paragraphs = assessment_content.split('\n')
+    current_paragraph = None
+    
+    for line in paragraphs:
+        line = line.strip()
+        if not line:
+            continue
+            
+        # Check if it's a heading (contains certain keywords)
+        if any(keyword in line.upper() for keyword in ['ANALYSIS', 'ASSESSMENT', 'SUMMARY', 'RECOMMENDATION', 'VIABILITY', 'CALCULATION']):
+            doc.add_heading(line, level=2)
+        elif line.startswith('•') or line.startswith('-') or line.startswith('*'):
+            # Handle bullet points
+            p = doc.add_paragraph(line[1:].strip(), style='List Bullet')
+        elif ':' in line and len(line.split(':')) == 2:
+            # Handle key-value pairs
+            key, value = line.split(':', 1)
+            p = doc.add_paragraph()
+            p.add_run(f'{key.strip()}: ').bold = True
+            p.add_run(value.strip())
+        else:
+            # Regular paragraph
+            doc.add_paragraph(line)
+    
+    # Add footer
+    doc.add_page_break()
+    footer_section = doc.sections[0]
+    footer = footer_section.footer
+    footer_para = footer.paragraphs[0]
+    footer_para.text = "Financial Underwriting Assistant - Confidential Report"
+    footer_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    # Save to BytesIO buffer for download
+    buffer = BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    
+    return buffer
+
+def enhanced_risk_assessment_button():
+    """Enhanced Risk Assessment with DOCX export option"""
+    col_assess, col_export = st.columns([3, 1])
+    
+    with col_assess:
+        risk_assess_clicked = st.button("⚖️ Risk Assessment", use_container_width=True)
+    
+    with col_export:
+        export_clicked = st.button("📄 Export DOCX", use_container_width=True, 
+                                 disabled=not any(msg.get("role") == "assistant" and 
+                                               "risk assessment" in msg.get("content", "").lower() 
+                                               for msg in st.session_state.conversation_history))
+    
+    if risk_assess_clicked:
+        st.session_state.conversation_history.append({
+            "role": "user", 
+            "content": "Provide a comprehensive financial risk assessment using all available text and tabular data."
+        })
+        st.session_state.last_risk_assessment = True
+    
+    if export_clicked:
+        # Find the last risk assessment response
+        risk_assessment_content = None
+        for msg in reversed(st.session_state.conversation_history):
+            if (msg.get("role") == "assistant" and 
+                ("risk assessment" in msg.get("content", "").lower() or 
+                 "financial viability" in msg.get("content", "").lower())):
+                risk_assessment_content = msg.get("content")
+                break
+        
+        if risk_assessment_content:
+            try:
+                # Create DOCX buffer
+                docx_buffer = create_risk_assessment_docx(
+                    risk_assessment_content, 
+                    st.session_state.customer_age or 30, 
+                    st.session_state.policy_type or "Term"
+                )
+                
+                # Provide download button
+                st.download_button(
+                    label="📥 Download Risk Assessment Report",
+                    data=docx_buffer.getvalue(),
+                    file_name=f"risk_assessment_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    use_container_width=True
+                )
+                st.success("✅ DOCX report generated successfully!")
+                
+            except Exception as e:
+                st.error(f"Error generating DOCX: {str(e)}")
+        else:
+            st.warning("⚠️ No risk assessment found to export. Please run a risk assessment first.")
+
 if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
     st.markdown("---")
     st.markdown("### 🔍 Enhanced Financial Analysis with Table Data & Vision OCR")
@@ -1273,11 +1400,7 @@ if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
             })
     
     with col3:
-        if st.button("⚖️ Risk Assessment", use_container_width=True):
-            st.session_state.conversation_history.append({
-                "role": "user", 
-                "content": "Provide a comprehensive financial risk assessment using all available text and tabular data."
-            })
+        enhanced_risk_assessment_button()
     
     with col4:
         if st.button("📋 Full Report", use_container_width=True):
