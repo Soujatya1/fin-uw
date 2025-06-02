@@ -1264,7 +1264,7 @@ if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
 
 def create_risk_assessment_docx(assessment_content, customer_age, policy_type, filename="risk_assessment_report.docx"):
     """
-    Create a professionally formatted DOCX document for Risk Assessment
+    Create a professionally formatted DOCX document for Risk Assessment with proper table handling
     """
     doc = DocxDocument()
     
@@ -1285,30 +1285,55 @@ def create_risk_assessment_docx(assessment_content, customer_age, policy_type, f
     # Add assessment content
     doc.add_heading('Risk Assessment Analysis', level=1)
     
-    # Split content into paragraphs and format
-    paragraphs = assessment_content.split('\n')
-    current_paragraph = None
+    # Split content into lines and process
+    lines = assessment_content.split('\n')
+    i = 0
     
-    for line in paragraphs:
-        line = line.strip()
+    while i < len(lines):
+        line = lines[i].strip()
+        
         if not line:
+            i += 1
             continue
+        
+        # Check if this line starts a table (contains |)
+        if '|' in line and detect_table_start(line):
+            # Process table
+            table_lines = []
+            j = i
             
-        # Check if it's a heading (contains certain keywords)
-        if any(keyword in line.upper() for keyword in ['ANALYSIS', 'ASSESSMENT', 'SUMMARY', 'RECOMMENDATION', 'VIABILITY', 'CALCULATION']):
+            # Collect all table lines
+            while j < len(lines) and ('|' in lines[j] or lines[j].strip() == '' or lines[j].strip().startswith('---')):
+                if lines[j].strip() and not lines[j].strip().startswith('---'):
+                    table_lines.append(lines[j].strip())
+                j += 1
+            
+            if table_lines:
+                create_docx_table(doc, table_lines)
+            
+            i = j
+            continue
+        
+        # Check if it's a heading
+        if is_heading(line):
             doc.add_heading(line, level=2)
         elif line.startswith('•') or line.startswith('-') or line.startswith('*'):
             # Handle bullet points
-            p = doc.add_paragraph(line[1:].strip(), style='List Bullet')
-        elif ':' in line and len(line.split(':')) == 2:
-            # Handle key-value pairs
+            doc.add_paragraph(line[1:].strip(), style='List Bullet')
+        elif ':' in line and len(line.split(':', 1)) == 2 and not line.count(':') > 3:
+            # Handle key-value pairs (but not calculation lines with multiple colons)
             key, value = line.split(':', 1)
-            p = doc.add_paragraph()
-            p.add_run(f'{key.strip()}: ').bold = True
-            p.add_run(value.strip())
+            if len(key.strip()) < 50:  # Reasonable key length
+                p = doc.add_paragraph()
+                p.add_run(f'{key.strip()}: ').bold = True
+                p.add_run(value.strip())
+            else:
+                doc.add_paragraph(line)
         else:
             # Regular paragraph
             doc.add_paragraph(line)
+        
+        i += 1
     
     # Add footer
     doc.add_page_break()
@@ -1325,8 +1350,109 @@ def create_risk_assessment_docx(assessment_content, customer_age, policy_type, f
     
     return buffer
 
+def detect_table_start(line):
+    """
+    Detect if a line is the start of a markdown-style table
+    """
+    # Count pipes and check if it looks like a table header
+    pipe_count = line.count('|')
+    if pipe_count >= 2:  # At least 3 columns (2 separators)
+        # Remove leading/trailing pipes and split
+        cells = [cell.strip() for cell in line.strip('|').split('|')]
+        # Check if cells contain reasonable header content
+        return len(cells) >= 2 and any(len(cell.strip()) > 0 for cell in cells)
+    return False
+
+def is_heading(line):
+    """
+    Determine if a line should be treated as a heading
+    """
+    heading_keywords = [
+        'ANALYSIS', 'ASSESSMENT', 'SUMMARY', 'RECOMMENDATION', 'VIABILITY', 
+        'CALCULATION', 'DOCUMENT', 'GUIDELINE', 'INPUT VALUES', 'STEPS',
+        'RISK', 'FINAL', 'CONCLUSION', 'FINDINGS', 'OVERVIEW'
+    ]
+    
+    line_upper = line.upper()
+    
+    # Check for all-caps lines
+    if line.isupper() and len(line) > 3:
+        return True
+    
+    # Check for lines with heading keywords
+    if any(keyword in line_upper for keyword in heading_keywords):
+        return True
+    
+    # Check for lines ending with colon (section headers)
+    if line.endswith(':') and len(line) < 100:
+        return True
+    
+    return False
+
+def create_docx_table(doc, table_lines):
+    """
+    Create a properly formatted DOCX table from markdown-style table lines
+    """
+    if not table_lines:
+        return
+    
+    # Clean and parse table data
+    parsed_rows = []
+    for line in table_lines:
+        # Remove leading/trailing pipes and split
+        cells = [cell.strip() for cell in line.strip('|').split('|')]
+        if cells and any(cell.strip() for cell in cells):  # Skip empty rows
+            parsed_rows.append(cells)
+    
+    if not parsed_rows:
+        return
+    
+    # Determine table dimensions
+    max_cols = max(len(row) for row in parsed_rows)
+    
+    # Pad rows to have consistent column count
+    for row in parsed_rows:
+        while len(row) < max_cols:
+            row.append('')
+    
+    # Create the table
+    table = doc.add_table(rows=len(parsed_rows), cols=max_cols)
+    table.style = 'Table Grid'
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    
+    # Populate table
+    for row_idx, row_data in enumerate(parsed_rows):
+        table_row = table.rows[row_idx]
+        for col_idx, cell_data in enumerate(row_data):
+            cell = table_row.cells[col_idx]
+            cell.text = cell_data.strip()
+            
+            # Format header row (first row)
+            if row_idx == 0:
+                # Make header bold
+                for paragraph in cell.paragraphs:
+                    for run in paragraph.runs:
+                        run.bold = True
+                
+                # Add background color to header
+                try:
+                    cell_elem = cell._element
+                    cell_properties = cell_elem.get_or_add_tcPr()
+                    shade_elem = OxmlElement('w:shd')
+                    shade_elem.set(qn('w:fill'), 'D9E2F3')  # Light blue background
+                    cell_properties.append(shade_elem)
+                except:
+                    pass  # Skip if styling fails
+    
+    # Set column widths
+    for col in table.columns:
+        col.width = Inches(2.0)
+    
+    # Add some spacing after the table
+    doc.add_paragraph('')
+
 def enhanced_risk_assessment_button():
-    """Enhanced Risk Assessment with DOCX export option"""
+    """Enhanced Risk Assessment with improved DOCX export option"""
     col_assess, col_export = st.columns([3, 1])
     
     with col_assess:
@@ -1335,7 +1461,8 @@ def enhanced_risk_assessment_button():
     with col_export:
         export_clicked = st.button("📄 Export DOCX", use_container_width=True, 
                                  disabled=not any(msg.get("role") == "assistant" and 
-                                               "risk assessment" in msg.get("content", "").lower() 
+                                               ("risk assessment" in msg.get("content", "").lower() or
+                                                "financial viability" in msg.get("content", "").lower())
                                                for msg in st.session_state.conversation_history))
     
     if risk_assess_clicked:
@@ -1351,13 +1478,14 @@ def enhanced_risk_assessment_button():
         for msg in reversed(st.session_state.conversation_history):
             if (msg.get("role") == "assistant" and 
                 ("risk assessment" in msg.get("content", "").lower() or 
-                 "financial viability" in msg.get("content", "").lower())):
+                 "financial viability" in msg.get("content", "").lower() or
+                 "analysis" in msg.get("content", "").lower())):
                 risk_assessment_content = msg.get("content")
                 break
         
         if risk_assessment_content:
             try:
-                # Create DOCX buffer
+                # Create DOCX buffer with enhanced table support
                 docx_buffer = create_risk_assessment_docx(
                     risk_assessment_content, 
                     st.session_state.customer_age or 30, 
@@ -1372,10 +1500,15 @@ def enhanced_risk_assessment_button():
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     use_container_width=True
                 )
-                st.success("✅ DOCX report generated successfully!")
+                st.success("✅ DOCX report generated successfully with proper table formatting!")
                 
             except Exception as e:
                 st.error(f"Error generating DOCX: {str(e)}")
+                st.error("Please check the console for detailed error information.")
+                # Add debug information
+                st.write("Debug info:")
+                st.write(f"Content length: {len(risk_assessment_content) if risk_assessment_content else 0}")
+                st.write(f"Contains tables: {'|' in risk_assessment_content if risk_assessment_content else False}")
         else:
             st.warning("⚠️ No risk assessment found to export. Please run a risk assessment first.")
 
