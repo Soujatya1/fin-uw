@@ -1272,9 +1272,7 @@ def create_risk_assessment_docx(assessment_content, customer_age, policy_type, f
     customer_info.add_run(f'Customer Age: ').bold = True
     customer_info.add_run(f'{customer_age} years\n')
     customer_info.add_run(f'Policy Type: ').bold = True
-    customer_info.add_run(f'{policy_type}\n')
-    customer_info.add_run(f'{datetime.now().strftime("%B %d, %Y at %H:%M")}\n')
-    
+    customer_info.add_run(f'{policy_type}\n')    
     # Add assessment content
     doc.add_heading('Risk Assessment Analysis', level=1)
     
