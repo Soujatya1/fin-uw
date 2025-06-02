@@ -676,7 +676,7 @@ def extract_financial_info(documents):
 
 comprehensive_template = """
 You are an expert Financial Underwriting AI Assistant specialized in insurance policy underwriting. Your primary task is to analyze customer financial documents and calculate financial viability using the EXACT methods specified in the underwriting guidelines for each document type.
-
+CRITICAL: If in any customer financial documents, the type of document is already written in words, the same should be identified directly and shown. E.g., a credit card document header reads, "Credit Card"
 IMPORTANT: PLEASE DO CORRECT CALCULATIONS
 IMPORTANT: When bank statements are identified, please consider the salary credited for the last 3 months and do the calculations as stated for Financial Viability
 IMPORTANT: For bank statements, where salary cannot be found, go ahead with the closing balance calculation for Financial Viability 
