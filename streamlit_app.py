@@ -698,9 +698,23 @@ Analyze the customer documents and identify the PRIMARY document type from these
 - Home Loan
 - House/Shop Ownership
 
+**SPECIAL BANK STATEMENT DETECTION RULES:**
+For bank statements, you MUST first determine which calculation method to use:
+
+1. **SALARY DETECTION PHASE:** Carefully scan the bank statement for salary-related transactions:
+   - Look for regular monthly credits with terms like: "SALARY", "SAL", "PAY", "PAYROLL", "WAGES", "MONTHLY CREDIT"
+   - Check for consistent monthly amounts from employer names
+   - Look for salary patterns in credit transactions over the last 3-6 months
+   
+2. **AUTOMATIC METHOD SELECTION:**
+   - IF salary credits are found: Use "Bank Statement (Salaried)" method
+   - IF NO salary credits found: Use "Bank Statement (Closing Balance)" method
+
 **Output Format:**
 ```
 PRIMARY DOCUMENT TYPE IDENTIFIED: [Document Type]
+BANK STATEMENT SUB-TYPE: [Salaried/Closing Balance] (only for bank statements)
+SALARY DETECTION RESULT: [Found/Not Found - with evidence]
 CONFIDENCE LEVEL: High/Medium/Low
 SUPPORTING EVIDENCE: [Key identifiers found in the document]
 ```
@@ -714,12 +728,13 @@ Based on the identified document type, customer age ({customer_age}), and policy
 - Term Cases: Annual Salary = Gross Monthly Salary × 12; Financial Viability = Annual Salary × Income Multiplier
 - Non-Term Cases: Annual Salary = Gross Monthly Salary × 12; Annual Bonus = Annual Salary × 0.10; Total = Annual Salary + Annual Bonus; Financial Viability = Total × Income Multiplier
 
-**For Bank Statement (Salaried):**
+**For Bank Statement (Salaried) - ONLY when salary credits are detected:**
 - Term Cases: Average Monthly Salary (last 3 months) × 12; Add 30% to get Gross Annual Salary; Financial Viability = Gross Annual Salary × Age-based Multiplier
 - Non-Term Cases: Average Monthly Salary (last 6 months) × 12; Financial Viability = Annual Income × Age-based Multiplier
 
-**For Bank Statement (Closing Balance):**
+**For Bank Statement (Closing Balance) - ONLY when NO salary credits found:**
 - Term Cases: Average Closing Balance (last 3 months) × 12; Financial Viability = Annual Average Income × Age-based Multiplier
+- Non-Term Cases: Same as Term Cases
 
 **For ITR & COI:**
 - Term Cases: Only Earned Income (exclude unearned); Financial Viability = Total Earned Income × Age-based Multiplier
@@ -747,6 +762,175 @@ Based on the identified document type, customer age ({customer_age}), and policy
 - Term Cases: Financial Viability = Property Value × 0.50
 
 **STEP 3: AGE-BASED MULTIPLIER SELECTION**
+Use the correct age-based multiplier from guidelines:
+
+**Term Cases Multipliers:**
+- Age 18-30: 25x
+- Age 31-35: 25x  
+- Age 36-40: 20x
+- Age 41-45: 15x
+- Age 46-50: 12x
+- Age 51-55: 10x
+- Age ≥56: 5x
+
+**Non-Term Cases Multipliers:**
+- Age 18-30: 35x
+- Age 31-35: 30x
+- Age 36-40: 25x
+- Age 41-45: 20x
+- Age 46-50: 15x
+- Age 51-65: 10x
+- Age >65: 6x
+
+**STEP 4: PRECISE CALCULATION**
+Apply the exact formula for the identified document type using actual values from customer documents.
+
+**For Bank Statements - Show Detection Process:**
+```
+BANK STATEMENT ANALYSIS:
+Salary Detection Scan:
+- Searched for: [List salary-related keywords found/not found]
+- Regular Monthly Credits: [Found/Not Found]
+- Salary Patterns: [Describe any patterns found]
+- Decision: [Salaried Method / Closing Balance Method]
+
+CALCULATION METHOD SELECTED: [Method name]
+```
+
+**Output Format:**
+```
+GUIDELINE-BASED CALCULATION:
+Document Type: [Type]
+Sub-type: [If bank statement, specify Salaried or Closing Balance]
+Policy Type: {policy_type}
+Customer Age: {customer_age}
+Applicable Formula: [Exact formula from guidelines]
+Age-based Multiplier: [X]x
+
+INPUT VALUES:
+[List all extracted values with source references]
+
+CALCULATION STEPS:
+Step 1: [First calculation with actual numbers]
+Step 2: [Second calculation if applicable]
+Step 3: [Final calculation]
+
+FINANCIAL VIABILITY: ₹[Final Amount]
+METHOD JUSTIFICATION: [Why this specific method was chosen for bank statements]
+```
+
+**STEP 5: VALIDATION AND COMPARISON**
+Compare your calculation with the generic method to ensure accuracy.
+
+**STEP 6: COMPREHENSIVE ANALYSIS**
+Provide detailed analysis including:
+
+**Document Analysis Summary:**
+| Parameter | Value | Source Location | Document Type Method | Age-Generic Method | Variance |
+|-----------|-------|----------------|---------------------|-------------------|----------|
+
+**Risk Assessment:**
+- Income Stability: [Analysis]
+- Debt-to-Income Ratio: [If applicable]
+- Financial Capacity: [Assessment]
+- Premium Affordability: [Based on calculated viability]
+
+**Final Recommendation:**
+- Policy Eligibility: Approved/Conditional/Declined
+- Justification: [Why this specific calculation method was used]
+
+**CRITICAL INSTRUCTIONS:**
+1. NEVER use the generic age-based multiplier ({income_multiplier}x) alone - it's only for reference
+2. ALWAYS use the document-type-specific calculation method from guidelines
+3. For bank statements, ALWAYS perform salary detection first, then choose appropriate method
+4. Extract EXACT numerical values from customer documents
+5. Show ALL calculation steps with actual numbers
+6. Reference specific guideline sections/pages
+7. If document type is unclear, state this and explain your reasoning
+8. If multiple document types are present, prioritize the most reliable one (usually Salary Slip or ITR)
+
+**Customer Information:**
+- Age: {customer_age} years
+- Policy Type: {policy_type}
+- Reference Generic Multiplier: {income_multiplier}x (DO NOT USE - for reference only)
+
+**Question:** {question}
+**Guidelines Context:** {guidelines_context}
+**Customer F
+
+specific_template = """
+You are a financial underwriting expert. Answer the specific question asked based on the customer's financial documents and underwriting guidelines. 
+IMPORTANT: Mention the customer financial document type.
+IMPORTANT: PLEASE DO CORRECT CALCULATIONS
+CRITICAL: All NUMBERS TO BE CONSIDERED IN INDIAN RUPEES AND SYSTEM
+
+**BANK STATEMENT SPECIAL HANDLING:**
+If analyzing bank statements, you MUST:
+
+1. **FIRST: Detect Salary Credits**
+   - Scan for salary-related transactions: "SALARY", "SAL", "PAY", "PAYROLL", "WAGES"
+   - Look for regular monthly employer credits
+   - Check transaction patterns over 3-6 months
+
+2. **THEN: Choose Calculation Method**
+   - IF salary credits found → Use Bank Statement (Salaried) method
+   - IF NO salary credits found → Use Bank Statement (Closing Balance) method
+
+3. **SHOW YOUR DETECTION PROCESS**
+   ```
+   BANK STATEMENT DETECTION:
+   Salary Search Result: [Found/Not Found]
+   Evidence: [List specific transactions or lack thereof]
+   Method Selected: [Salaried/Closing Balance]
+   ```
+
+**Customer Information:**
+- Age: {customer_age} years
+- Policy Type: {policy_type}
+- Income Multiplier: {income_multiplier}x
+
+Based on the identified document type, customer age ({customer_age}), and policy type ({policy_type}), extract the EXACT calculation method from the guidelines.
+
+**From the Guidelines Document, use these SPECIFIC formulas:**
+
+**For Salary Slips:**
+- Term Cases: Annual Salary = Gross Monthly Salary × 12; Financial Viability = Annual Salary × Income Multiplier
+- Non-Term Cases: Annual Salary = Gross Monthly Salary × 12; Annual Bonus = Annual Salary × 0.10; Total = Annual Salary + Annual Bonus; Financial Viability = Total × Income Multiplier
+
+**For Bank Statement (Salaried) - USE ONLY when salary credits detected:**
+- Term Cases: Average Monthly Salary (last 3 months) × 12; Add 30% to get Gross Annual Salary; Financial Viability = Gross Annual Salary × Age-based Multiplier
+- Non-Term Cases: Average Monthly Salary (last 6 months) × 12; Financial Viability = Annual Income × Age-based Multiplier
+
+**For Bank Statement (Closing Balance) - USE ONLY when NO salary credits found:**
+- Term Cases: Average Closing Balance (last 3 months) × 12; Financial Viability = Annual Average Income × Age-based Multiplier
+- Non-Term Cases: Same as Term Cases
+
+**For ITR & COI:**
+- Term Cases: Only Earned Income (exclude unearned); Financial Viability = Total Earned Income × Age-based Multiplier
+- Non-Term Cases: Include ALL income types (earned + unearned); Financial Viability = Total Income × Age-based Multiplier
+
+**For Form 16:**
+- Term Cases: Gross Income from Part A; Financial Viability = Annual Income × Age-based Multiplier
+
+**For Mutual Fund Statement - SIP:**
+- Term Cases: Monthly SIP × 12 = Annual Income; Financial Viability = Annual Income × Age-based Multiplier
+
+**For Credit Card Statements:**
+- Term Cases: Monthly CC Statement Value × 6 = Annual Income; Financial Viability = Annual Income × Age-based Multiplier
+
+**For Car Ownership:**
+- Term Cases: Car IDV Value × 2 = Annual Income; Financial Viability = Annual Income × Age-based Multiplier
+
+**For Fixed Deposits:**
+- Term Cases: Investment Value × 0.05 = Estimated Annual Income; Financial Viability = Annual Income × Age-based Multiplier
+
+**For Home Loan:**
+- Term Cases: Monthly EMI × 24 = Annual Income; Financial Viability = Annual Income × Age-based Multiplier
+
+**For House/Shop Ownership:**
+- Term Cases: Financial Viability = Property Value × 0.50
+
+**AGE-BASED MULTIPLIER SELECTION**
 Use the correct age-based multiplier from guidelines:
 
 **Term Cases Multipliers:**
