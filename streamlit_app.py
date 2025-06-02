@@ -296,6 +296,14 @@ def setup_vision_client():
         if not api_key:
             st.error("⚠️ Please enter your Google Vision API key in the sidebar.")
             return None
+            
+        client = vision.ImageAnnotatorClient(
+            client_options={"api_key": api_key}
+        )
+        return client
+    except Exception as e:
+        st.error(f"Error setting up Google Vision client: {str(e)}")
+        return None
 
 def pdf_to_images(pdf_path):
     try:
