@@ -271,7 +271,6 @@ def create_excel_export(extracted_data, filename="financial_data_export.xlsx"):
                 df.to_excel(writer, sheet_name=sheet_name, index=False)
                 worksheet = writer.sheets[sheet_name]
                 
-                # Format columns
                 for col_num, col_name in enumerate(df.columns):
                     if col_name in ['Value', 'Extracted Amounts']:
                         worksheet.set_column(col_num, col_num, 15, amount_format)
@@ -377,15 +376,14 @@ def is_scanned_pdf(pdf_path):
         with pdfplumber.open(pdf_path) as pdf:
             total_text = ""
             total_chars = 0
-            pages_checked = min(3, len(pdf.pages))  # Check first 3 pages or all if fewer
+            pages_checked = min(3, len(pdf.pages))
             
             for page in pdf.pages[:pages_checked]:
                 text = page.extract_text() or ""
                 total_text += text
                 total_chars += len(text.strip())
             
-            # More sophisticated detection
-            # Consider it scanned if very little text per page
+            
             avg_chars_per_page = total_chars / pages_checked if pages_checked > 0 else 0
             return avg_chars_per_page < 50
     except:
@@ -466,10 +464,8 @@ def format_table_for_llm(df: pd.DataFrame, table_info: dict) -> str:
 
 def load_customer_pdf_with_vision(file_path):
     """Enhanced function to handle mixed PDF types"""
-    # First, try normal extraction
     document_content = extract_tables_from_pdf(file_path)
     
-    # Analyze extraction quality per page
     page_extraction_quality = {}
     total_meaningful_content = False
     
@@ -481,16 +477,14 @@ def load_customer_pdf_with_vision(file_path):
             if text_length > 50:
                 total_meaningful_content = True
         elif content["type"] == "table" and not content["dataframe"].empty:
-            page_extraction_quality[page_num] = page_extraction_quality.get(page_num, 0) + 100  # Boost for tables
+            page_extraction_quality[page_num] = page_extraction_quality.get(page_num, 0) + 100
             total_meaningful_content = True
     
-    # Identify pages that need OCR (low text extraction)
     pages_needing_ocr = []
     for page_num, quality in page_extraction_quality.items():
-        if quality < 30:  # Threshold for poor extraction
+        if quality < 30:
             pages_needing_ocr.append(page_num)
     
-    # If no meaningful content at all, use OCR for entire document
     if not total_meaningful_content:
         st.info(f"📸 Document appears to be entirely scanned. Using Google Vision API...")
         vision_documents = extract_text_with_vision(file_path)
@@ -499,23 +493,19 @@ def load_customer_pdf_with_vision(file_path):
         else:
             st.warning("Vision API failed, using available content from pdfplumber...")
     
-    # For mixed documents, use OCR only for problematic pages
     elif pages_needing_ocr:
         st.info(f"📸 Using OCR for pages with poor text extraction: {pages_needing_ocr}")
         vision_documents = extract_text_with_vision_selective(file_path, pages_needing_ocr)
         
-        # Merge OCR results with regular extraction
         documents = []
         ocr_pages = {doc.metadata["page"]: doc for doc in vision_documents}
         
         for content in document_content:
             page_num = content["page"]
             
-            # Use OCR version if available and original extraction was poor
             if page_num in ocr_pages and page_num in pages_needing_ocr:
                 documents.append(ocr_pages[page_num])
             else:
-                # Use regular extraction
                 if content["type"] == "text":
                     doc = Document(
                         page_content=content["content"],
@@ -541,7 +531,6 @@ def load_customer_pdf_with_vision(file_path):
         
         return documents
     
-    # For documents with good regular extraction, proceed normally
     documents = []
     for content in document_content:
         if content["type"] == "text":
@@ -581,7 +570,6 @@ def extract_text_with_vision_selective(pdf_path, target_pages=None):
         documents = []
         
         for img_info in images:
-            # Skip pages not in target list if specified
             if target_pages and img_info["page"] not in target_pages:
                 continue
                 
@@ -1003,7 +991,6 @@ def analyze_customer_finances(question, guidelines_docs, customer_docs):
         st.error("⚠️ Please enter your Groq API key to proceed with analysis.")
         return "API key required for analysis."
     
-    # Initialize model if not already done
     if not st.session_state.model_initialized:
         model = initialize_model()
         if not model:
@@ -1083,7 +1070,6 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 🔑 API Configuration")
     
-    # Groq API Key Input
     groq_key = st.text_input(
         "Groq API Key",
         type="password",
@@ -1093,9 +1079,8 @@ with st.sidebar:
     
     if groq_key != st.session_state.groq_api_key:
         st.session_state.groq_api_key = groq_key
-        st.session_state.model_initialized = False  # Reset model when key changes
+        st.session_state.model_initialized = False
     
-    # Google Vision API Key Input
     vision_key = st.text_input(
         "Google Vision API Key",
         type="password",
@@ -1106,7 +1091,6 @@ with st.sidebar:
     if vision_key != st.session_state.google_vision_api_key:
         st.session_state.google_vision_api_key = vision_key
     
-    # API Status
     if st.session_state.groq_api_key:
         st.success("✅ Groq API Key Set")
     else:
@@ -1173,7 +1157,6 @@ with col2:
             tables_by_page = {}
             scanned_count = 0
             
-            # Store customer document names in session state
             customer_doc_names = [file.name for file in customer_files]
             st.session_state.customer_doc_names = customer_doc_names
             
@@ -1257,26 +1240,21 @@ if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
         st.info(f"📊 Current Income Multiplier: **{multiplier}x** (Age: {customer_age}, Policy: {policy_type})")
 
 def create_risk_assessment_docx(assessment_content, customer_age, policy_type, filename="risk_assessment_report.docx"):
-    """
-    Create a professionally formatted DOCX document for Risk Assessment with proper markdown parsing
-    """
+    """Create a professionally formatted DOCX document for Risk Assessment with proper markdown parsing"""
+ 
     doc = DocxDocument()
     
-    # Add title
     title = doc.add_heading('Financial Risk Assessment Report', 0)
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
     
-    # Add customer information section
     doc.add_heading('Customer Information', level=1)
     customer_info = doc.add_paragraph()
     customer_info.add_run(f'Customer Age: ').bold = True
     customer_info.add_run(f'{customer_age} years\n')
     customer_info.add_run(f'Policy Type: ').bold = True
     customer_info.add_run(f'{policy_type}\n')    
-    # Add assessment content
     doc.add_heading('Risk Assessment Analysis', level=1)
     
-    # Split content into lines and process
     lines = assessment_content.split('\n')
     i = 0
     
@@ -1287,13 +1265,10 @@ def create_risk_assessment_docx(assessment_content, customer_age, policy_type, f
             i += 1
             continue
         
-        # Check if this line starts a table (contains |)
         if '|' in line and detect_table_start(line):
-            # Process table
             table_lines = []
             j = i
             
-            # Collect all table lines
             while j < len(lines) and ('|' in lines[j] or lines[j].strip() == '' or lines[j].strip().startswith('---')):
                 if lines[j].strip() and not lines[j].strip().startswith('---'):
                     table_lines.append(lines[j].strip())
@@ -1305,7 +1280,6 @@ def create_risk_assessment_docx(assessment_content, customer_age, policy_type, f
             i = j
             continue
         
-        # Process markdown headings
         if line.startswith('###'):
             clean_heading = clean_markdown_text(line[3:].strip())
             doc.add_heading(clean_heading, level=3)
@@ -1319,13 +1293,11 @@ def create_risk_assessment_docx(assessment_content, customer_age, policy_type, f
             clean_heading = clean_markdown_text(line)
             doc.add_heading(clean_heading, level=2)
         elif line.startswith('•') or line.startswith('-') or line.startswith('*'):
-            # Handle bullet points
             clean_text = clean_markdown_text(line[1:].strip())
             add_formatted_paragraph(doc, clean_text, style='List Bullet')
         elif ':' in line and len(line.split(':', 1)) == 2 and not line.count(':') > 3:
-            # Handle key-value pairs (but not calculation lines with multiple colons)
             key, value = line.split(':', 1)
-            if len(key.strip()) < 50:  # Reasonable key length
+            if len(key.strip()) < 50:
                 p = doc.add_paragraph()
                 clean_key = clean_markdown_text(key.strip())
                 clean_value = clean_markdown_text(value.strip())
@@ -1334,12 +1306,10 @@ def create_risk_assessment_docx(assessment_content, customer_age, policy_type, f
             else:
                 add_formatted_paragraph(doc, clean_markdown_text(line))
         else:
-            # Regular paragraph
             add_formatted_paragraph(doc, clean_markdown_text(line))
         
         i += 1
     
-    # Add footer
     doc.add_page_break()
     footer_section = doc.sections[0]
     footer = footer_section.footer
@@ -1347,7 +1317,6 @@ def create_risk_assessment_docx(assessment_content, customer_age, policy_type, f
     footer_para.text = "Financial Underwriting Assistant - Confidential Report"
     footer_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
     
-    # Save to BytesIO buffer for download
     buffer = BytesIO()
     doc.save(buffer)
     buffer.seek(0)
@@ -1355,25 +1324,19 @@ def create_risk_assessment_docx(assessment_content, customer_age, policy_type, f
     return buffer
 
 def clean_markdown_text(text):
-    """
-    Remove markdown formatting symbols from text
-    """
+    """Remove markdown formatting symbols from text"""
     if not text:
         return ""
     
-    # Remove markdown bold/italic markers but preserve the formatting intent
-    # We'll handle the actual formatting in add_formatted_text_to_paragraph
-    text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)  # Remove ** but keep content
-    text = re.sub(r'\*(.*?)\*', r'\1', text)      # Remove * but keep content
-    text = re.sub(r'`(.*?)`', r'\1', text)        # Remove code backticks
-    text = re.sub(r'#{1,6}\s*', '', text)         # Remove heading markers
+    text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
+    text = re.sub(r'\*(.*?)\*', r'\1', text)
+    text = re.sub(r'`(.*?)`', r'\1', text)
+    text = re.sub(r'#{1,6}\s*', '', text)
     
     return text.strip()
 
 def add_formatted_paragraph(doc, text, style=None):
-    """
-    Add a paragraph with markdown formatting converted to DOCX formatting
-    """
+    """Add a paragraph with markdown formatting converted to DOCX formatting"""
     if not text.strip():
         return
     
@@ -1381,52 +1344,38 @@ def add_formatted_paragraph(doc, text, style=None):
     add_formatted_text_to_paragraph(p, text)
 
 def add_formatted_text_to_paragraph(paragraph, text):
-    """
-    Add formatted text to a paragraph, converting markdown to DOCX formatting
-    """
+    """Add formatted text to a paragraph, converting markdown to DOCX formatting"""
     if not text:
         return
     
-    # Handle bold text **text**
     parts = re.split(r'(\*\*.*?\*\*)', text)
     
     for part in parts:
         if part.startswith('**') and part.endswith('**'):
-            # Bold text
-            bold_text = part[2:-2]  # Remove the ** markers
+            bold_text = part[2:-2]
             run = paragraph.add_run(bold_text)
             run.bold = True
         else:
-            # Handle italic text *text* within non-bold parts
             italic_parts = re.split(r'(\*.*?\*)', part)
             for italic_part in italic_parts:
                 if italic_part.startswith('*') and italic_part.endswith('*') and not italic_part.startswith('**'):
-                    # Italic text
-                    italic_text = italic_part[1:-1]  # Remove the * markers
+                    italic_text = italic_part[1:-1]
                     run = paragraph.add_run(italic_text)
                     run.italic = True
                 else:
-                    # Regular text
                     if italic_part:
                         paragraph.add_run(italic_part)
 
 def detect_table_start(line):
-    """
-    Detect if a line is the start of a markdown-style table
-    """
-    # Count pipes and check if it looks like a table header
+    """Detect if a line is the start of a markdown-style table"""
     pipe_count = line.count('|')
-    if pipe_count >= 2:  # At least 3 columns (2 separators)
-        # Remove leading/trailing pipes and split
+    if pipe_count >= 2:
         cells = [cell.strip() for cell in line.strip('|').split('|')]
-        # Check if cells contain reasonable header content
         return len(cells) >= 2 and any(len(cell.strip()) > 0 for cell in cells)
     return False
 
 def is_heading_by_content(line):
-    """
-    Determine if a line should be treated as a heading based on content
-    """
+    """Determine if a line should be treated as a heading based on content"""
     heading_keywords = [
         'ANALYSIS', 'ASSESSMENT', 'SUMMARY', 'RECOMMENDATION', 'VIABILITY', 
         'CALCULATION', 'DOCUMENT', 'GUIDELINE', 'INPUT VALUES', 'STEPS',
@@ -1435,84 +1384,67 @@ def is_heading_by_content(line):
     
     line_upper = line.upper()
     
-    # Don't treat lines with markdown symbols as headings by content
     if line.startswith('#') or '**' in line:
         return False
     
-    # Check for all-caps lines
     if line.isupper() and len(line) > 3 and len(line) < 100:
         return True
     
-    # Check for lines with heading keywords
     if any(keyword in line_upper for keyword in heading_keywords):
         return True
     
-    # Check for lines ending with colon (section headers)
     if line.endswith(':') and len(line) < 100 and not ':' in line[:-1]:
         return True
     
     return False
 
 def create_docx_table(doc, table_lines):
-    """
-    Create a properly formatted DOCX table from markdown-style table lines
-    """
+    """Create a properly formatted DOCX table from markdown-style table lines"""
     if not table_lines:
         return
     
-    # Clean and parse table data
     parsed_rows = []
     for line in table_lines:
-        # Remove leading/trailing pipes and split
         cells = [clean_markdown_text(cell.strip()) for cell in line.strip('|').split('|')]
-        if cells and any(cell.strip() for cell in cells):  # Skip empty rows
+        if cells and any(cell.strip() for cell in cells):
             parsed_rows.append(cells)
     
     if not parsed_rows:
         return
     
-    # Determine table dimensions
     max_cols = max(len(row) for row in parsed_rows)
     
-    # Pad rows to have consistent column count
     for row in parsed_rows:
         while len(row) < max_cols:
             row.append('')
     
-    # Create the table
     table = doc.add_table(rows=len(parsed_rows), cols=max_cols)
     table.style = 'Table Grid'
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
     
-    # Populate table
     for row_idx, row_data in enumerate(parsed_rows):
         table_row = table.rows[row_idx]
         for col_idx, cell_data in enumerate(row_data):
             cell = table_row.cells[col_idx]
             cell.text = cell_data.strip()
             
-            # Format header row (first row)
             if row_idx == 0:
-                # Make header bold
                 for paragraph in cell.paragraphs:
                     for run in paragraph.runs:
                         run.bold = True
                 
-                # Add background color to header
                 try:
                     cell_elem = cell._element
                     cell_properties = cell_elem.get_or_add_tcPr()
                     shade_elem = OxmlElement('w:shd')
-                    shade_elem.set(qn('w:fill'), 'D9E2F3')  # Light blue background
+                    shade_elem.set(qn('w:fill'), 'D9E2F3')
                     cell_properties.append(shade_elem)
                 except:
-                    pass  # Skip if styling fails
+                    pass
     
-    # Set column widths
     for col in table.columns:
         col.width = Inches(2.0)
     
-    # Add some spacing after the table
     doc.add_paragraph('')
     
 def enhanced_risk_assessment_button():
@@ -1533,7 +1465,6 @@ def enhanced_risk_assessment_button():
         st.session_state.last_risk_assessment = True
     
     if export_clicked:
-        # Find the last risk assessment response
         risk_assessment_content = None
         for msg in reversed(st.session_state.conversation_history):
             if (msg.get("role") == "assistant" and 
@@ -1545,20 +1476,16 @@ def enhanced_risk_assessment_button():
         
         if risk_assessment_content:
             try:
-                # Create DOCX buffer with enhanced table support
                 docx_buffer = create_risk_assessment_docx(
                     risk_assessment_content, 
                     st.session_state.customer_age or 30, 
                     st.session_state.policy_type or "Term"
                 )
                 
-                # Generate filename with customer document name
                 customer_doc_name = ""
                 if hasattr(st.session_state, 'customer_doc_names') and st.session_state.customer_doc_names:
-                    # Use the first customer document name, remove .pdf extension and clean it
                     first_doc = st.session_state.customer_doc_names[0]
                     customer_doc_name = first_doc.replace('.pdf', '').replace(' ', '_')
-                    # Limit length to avoid very long filenames
                     if len(customer_doc_name) > 20:
                         customer_doc_name = customer_doc_name[:20]
                     customer_doc_name = f"_{customer_doc_name}"
@@ -1566,7 +1493,6 @@ def enhanced_risk_assessment_button():
                 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
                 filename = f"risk_assessment_report{customer_doc_name}.docx"
                 
-                # Provide download button
                 st.download_button(
                     label="📥 Download Risk Assessment Report",
                     data=docx_buffer.getvalue(),
@@ -1579,7 +1505,6 @@ def enhanced_risk_assessment_button():
             except Exception as e:
                 st.error(f"Error generating DOCX: {str(e)}")
                 st.error("Please check the console for detailed error information.")
-                # Add debug information
                 st.write("Debug info:")
                 st.write(f"Content length: {len(risk_assessment_content) if risk_assessment_content else 0}")
                 st.write(f"Contains tables: {'|' in risk_assessment_content if risk_assessment_content else False}")
@@ -1629,7 +1554,7 @@ if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
         with st.spinner("Analyzing financial documents with table data..."):
             latest_question = st.session_state.conversation_history[-1]["content"]
             guidelines_docs = guidelines_vector_store.similarity_search(latest_question, k=5)
-            customer_docs = customer_docs_vector_store.similarity_search(latest_question, k=15)  # Increased k to capture more table data
+            customer_docs = customer_docs_vector_store.similarity_search(latest_question, k=15)
         
             answer = analyze_customer_finances(latest_question, guidelines_docs, customer_docs)
         
