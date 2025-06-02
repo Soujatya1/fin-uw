@@ -11,3 +11,4 @@ pdf2image
 Pillow
 PyMuPDF
 xlsxwriter
+python-docx
