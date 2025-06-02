@@ -826,8 +826,8 @@ Compare your calculation with the generic method to ensure accuracy.
 Provide detailed analysis including:
 
 **Document Analysis Summary:**
-| Parameter | Value | Source Location | Document Type Method | Age-Generic Method | Variance |
-|-----------|-------|----------------|---------------------|-------------------|----------|
+| Parameter | Value | Source Location | Document Type Method |
+|-----------|-------|----------------|---------------------|
 
 **Risk Assessment:**
 - Income Stability: [Analysis]
