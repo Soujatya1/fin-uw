@@ -726,8 +726,8 @@ Based on the identified document type, customer age ({customer_age}), and policy
 **From the Guidelines Document, use these SPECIFIC formulas:**
 
 **For Salary Slips:**
-- Term Cases: Annual Salary = Gross Monthly Salary (latest month) × 12; Financial Viability = Annual Salary × Income Multiplier
-- Non-Term Cases: Annual Salary = Gross Monthly Salary (latest month) × 12; Annual Bonus = Annual Salary × 0.10; Total = Annual Salary + Annual Bonus; Financial Viability = Total × Income Multiplier
+- Term Cases: Annual Salary = Monthly Salary (latest month) × 12; Financial Viability = Annual Salary × Income Multiplier
+- Non-Term Cases: Annual Salary = Monthly Salary (latest month) × 12; Annual Bonus = Annual Salary × 0.10; Total = Annual Salary + Annual Bonus; Financial Viability = Total × Income Multiplier
 
 **For Bank Statement (Salaried) - ONLY when salary credits are detected:**
 - Term Cases: Average Monthly Salary (last 3 months) × 12; Add 30% to get Gross Annual Salary; Financial Viability = Gross Annual Salary × Age-based Multiplier
@@ -898,8 +898,8 @@ Based on the identified document type, customer age ({customer_age}), and policy
 **From the Guidelines Document, use these SPECIFIC formulas:**
 
 **For Salary Slips:**
-- Term Cases: Annual Salary = Gross Monthly Salary × 12; Financial Viability = Annual Salary × Income Multiplier
-- Non-Term Cases: Annual Salary = Gross Monthly Salary × 12; Annual Bonus = Annual Salary × 0.10; Total = Annual Salary + Annual Bonus; Financial Viability = Total × Income Multiplier
+- Term Cases: Annual Salary = Monthly Salary × 12; Financial Viability = Annual Salary × Income Multiplier
+- Non-Term Cases: Annual Salary = Monthly Salary × 12; Annual Bonus = Annual Salary × 0.10; Total = Annual Salary + Annual Bonus; Financial Viability = Total × Income Multiplier
 
 **For Bank Statement (Salaried) - USE ONLY when salary credits detected:**
 - Term Cases: Average Monthly Salary (last 3 months) × 12; Add 30% to get Gross Annual Salary; Financial Viability = Gross Annual Salary × Age-based Multiplier
