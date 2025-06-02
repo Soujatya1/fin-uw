@@ -856,7 +856,10 @@ Provide detailed analysis including:
 
 **Question:** {question}
 **Guidelines Context:** {guidelines_context}
-**Customer F
+**Customer Financial Documents:** {customer_context}
+
+**RESPONSE:**
+"""
 
 specific_template = """
 You are a financial underwriting expert. Answer the specific question asked based on the customer's financial documents and underwriting guidelines. 
