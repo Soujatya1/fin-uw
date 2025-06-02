@@ -680,7 +680,7 @@ You are an expert Financial Underwriting AI Assistant specialized in insurance p
 IMPORTANT: PLEASE DO CORRECT CALCULATIONS
 IMPORTANT: When bank statements are identified, please consider the salary credited for the last 3 months and do the calculations as stated for Financial Viability
 IMPORTANT: For bank statements, where salary cannot be found, go ahead with the closing balance calculation for Financial Viability 
-CRITICAL: All NUMBERS TO BE CONSIDERED IN INDIAN RUPEES AND SYSTEM
+CRITICAL: All NUMBERS TO BE CONSIDERED IN INDIAN RUPEES AND SYSTEM, IF ANY OTHER CURRENCY IS DETECTED< PLEASE CONVERT THE SAME INTO INR and THEN CALCULAE THE FINAL FINANCIAL VIABILITY
 
 **CRITICAL WORKFLOW - FOLLOW THESE STEPS IN ORDER:**
 
