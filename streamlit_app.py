@@ -119,7 +119,8 @@ class FinancialDataExtractor:
             'loan_details': [],
             'tax_details': [],
             'tables_data': [],
-            'raw_text_data': []
+            'raw_text_data': [],
+            'salary_credits': []
         }
         
         self.financial_patterns = {
@@ -683,6 +684,7 @@ comprehensive_template = """
 You are an expert Financial Underwriting AI Assistant specialized in insurance policy underwriting. Your primary task is to analyze customer financial documents and calculate financial viability using the EXACT methods specified in the underwriting guidelines for each document type.
 
 IMPORTANT: PLEASE DO CORRECT CALCULATIONS
+IMPORTANT: When bank statements are identified, please consider the salary credited for the last 3 months and do the calculations as stated for Financial Viability
 CRITICAL: All NUMBERS TO BE CONSIDERED IN INDIAN RUPEES AND SYSTEM
 
 **CRITICAL WORKFLOW - FOLLOW THESE STEPS IN ORDER:**
