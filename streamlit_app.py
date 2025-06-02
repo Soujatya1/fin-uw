@@ -291,19 +291,11 @@ financial_extractor = FinancialDataExtractor()
 
 def setup_vision_client():
     try:
-        api_key = "AIzaSyDz9toLotDK35LQUWat9E4sQ8DjFmXO4HE"
+        api_key = st.session_state.get('google_vision_api_key')
         
-        if not api_key or api_key == "YOUR_ACTUAL_GOOGLE_VISION_API_KEY_HERE":
-            st.error("⚠️ Please replace 'YOUR_ACTUAL_GOOGLE_VISION_API_KEY_HERE' with your actual Google Vision API key.")
+        if not api_key:
+            st.error("⚠️ Please enter your Google Vision API key in the sidebar.")
             return None
-            
-        client = vision.ImageAnnotatorClient(
-            client_options={"api_key": api_key}
-        )
-        return client
-    except Exception as e:
-        st.error(f"Error setting up Google Vision client: {str(e)}")
-        return None
 
 def pdf_to_images(pdf_path):
     try:
@@ -953,11 +945,22 @@ embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-
 guidelines_vector_store = InMemoryVectorStore(embeddings)
 customer_docs_vector_store = InMemoryVectorStore(embeddings)
 
-model = ChatGroq(
-    groq_api_key="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", 
-    model_name="meta-llama/llama-4-scout-17b-16e-instruct", 
-    temperature=0.3
-)
+def initialize_model():
+    """Initialize the ChatGroq model with API key from session state"""
+    if not st.session_state.groq_api_key:
+        return None
+    
+    try:
+        model = ChatGroq(
+            groq_api_key=st.session_state.groq_api_key,
+            model_name="meta-llama/llama-4-scout-17b-16e-instruct", 
+            temperature=0.3
+        )
+        st.session_state.model_initialized = True
+        return model
+    except Exception as e:
+        st.error(f"Error initializing Groq model: {str(e)}")
+        return None
 
 def upload_pdf(file, directory):
     file_path = directory + file.name
@@ -979,6 +982,17 @@ def process_documents_with_pii_shield(documents):
     return protected_docs
 
 def analyze_customer_finances(question, guidelines_docs, customer_docs):
+    if not st.session_state.groq_api_key:
+        st.error("⚠️ Please enter your Groq API key to proceed with analysis.")
+        return "API key required for analysis."
+    
+    # Initialize model if not already done
+    if not st.session_state.model_initialized:
+        model = initialize_model()
+        if not model:
+            return "Failed to initialize model. Please check your API key."
+    else:
+        model = initialize_model()
     guidelines_context = "\n\n".join([doc.page_content for doc in guidelines_docs])
     
     financial_docs = extract_financial_info(customer_docs)
@@ -1024,6 +1038,13 @@ if "customer_age" not in st.session_state:
 if "policy_type" not in st.session_state:
     st.session_state.policy_type = "Term"
 
+if "google_vision_api_key" not in st.session_state:
+    st.session_state.google_vision_api_key = ""
+if "groq_api_key" not in st.session_state:
+    st.session_state.groq_api_key = ""
+if "model_initialized" not in st.session_state:
+    st.session_state.model_initialized = False
+
 with st.sidebar:
     st.markdown("### 🛡️ PII Protection Settings")
     st.markdown("""
@@ -1048,7 +1069,42 @@ with st.sidebar:
                 st.write(f"• {pii_type.replace('_', ' ').title()}: {count} instances")
     else:
         st.warning("⚠️ PII Shield Disabled - Use with caution!")
+    st.markdown("---")
+    st.markdown("### 🔑 API Configuration")
     
+    # Groq API Key Input
+    groq_key = st.text_input(
+        "Groq API Key",
+        type="password",
+        value=st.session_state.groq_api_key,
+        help="Enter your Groq API key for LLM processing"
+    )
+    
+    if groq_key != st.session_state.groq_api_key:
+        st.session_state.groq_api_key = groq_key
+        st.session_state.model_initialized = False  # Reset model when key changes
+    
+    # Google Vision API Key Input
+    vision_key = st.text_input(
+        "Google Vision API Key",
+        type="password",
+        value=st.session_state.google_vision_api_key,
+        help="Enter your Google Vision API key for OCR processing"
+    )
+    
+    if vision_key != st.session_state.google_vision_api_key:
+        st.session_state.google_vision_api_key = vision_key
+    
+    # API Status
+    if st.session_state.groq_api_key:
+        st.success("✅ Groq API Key Set")
+    else:
+        st.error("❌ Groq API Key Required")
+    
+    if st.session_state.google_vision_api_key:
+        st.success("✅ Google Vision API Key Set")
+    else:
+        st.warning("⚠️ Google Vision API Key Optional (for scanned PDFs)")
     st.markdown("### 📸 Google Vision Status")
     vision_client = setup_vision_client()
     if vision_client:
