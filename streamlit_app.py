@@ -1173,6 +1173,10 @@ with col2:
             tables_by_page = {}
             scanned_count = 0
             
+            # Store customer document names in session state
+            customer_doc_names = [file.name for file in customer_files]
+            st.session_state.customer_doc_names = customer_doc_names
+            
             for file in customer_files:
                 file_path = upload_pdf(file, customer_docs_directory)
                 
@@ -1522,7 +1526,11 @@ def enhanced_risk_assessment_button():
         risk_assess_clicked = st.button("⚖️ Risk Assessment", use_container_width=True)
     
     with col_export:
-        export_clicked = st.button("📄 Export DOCX", use_container_width=True)
+        export_clicked = st.button("📄 Export DOCX", use_container_width=True, 
+                                 disabled=not any(msg.get("role") == "assistant" and 
+                                               ("risk assessment" in msg.get("content", "").lower() or
+                                                "financial viability" in msg.get("content", "").lower())
+                                               for msg in st.session_state.conversation_history))
     
     if risk_assess_clicked:
         st.session_state.conversation_history.append({
@@ -1551,11 +1559,25 @@ def enhanced_risk_assessment_button():
                     st.session_state.policy_type or "Term"
                 )
                 
+                # Generate filename with customer document name
+                customer_doc_name = ""
+                if hasattr(st.session_state, 'customer_doc_names') and st.session_state.customer_doc_names:
+                    # Use the first customer document name, remove .pdf extension and clean it
+                    first_doc = st.session_state.customer_doc_names[0]
+                    customer_doc_name = first_doc.replace('.pdf', '').replace(' ', '_')
+                    # Limit length to avoid very long filenames
+                    if len(customer_doc_name) > 20:
+                        customer_doc_name = customer_doc_name[:20]
+                    customer_doc_name = f"_{customer_doc_name}"
+                
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                filename = f"risk_assessment_report{customer_doc_name}.docx"
+                
                 # Provide download button
                 st.download_button(
                     label="📥 Download Risk Assessment Report",
                     data=docx_buffer.getvalue(),
-                    file_name=f"risk_assessment_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx",
+                    file_name=filename,
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     use_container_width=True
                 )
