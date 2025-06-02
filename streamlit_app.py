@@ -1067,16 +1067,6 @@ if "last_risk_assessment" not in st.session_state:
     
 
 with st.sidebar:
-    st.markdown("### 🛡️ PII Protection Settings")
-    st.markdown("""
-                ### 🔒 Privacy & Security Notice
-                - **PII Protection**: Personal identifiable information is automatically anonymized using hash-based replacement
-                - **Data Retention**: Document data is stored in memory only and cleared when the session ends
-                - **Secure Processing**: All financial analysis is performed on anonymized data
-                - **Table Extraction**: Enhanced parsing preserves tabular financial data structure
-                - **Google Vision**: Scanned documents processed with OCR for better text extraction
-                - **Compliance**: Designed to help maintain privacy standards for financial document processing""")
-    
     pii_enabled = st.toggle("Enable PII Shield", value=True, help="Automatically anonymize personal information")
     pii_shield.anonymization_enabled = pii_enabled
     
@@ -1264,7 +1254,7 @@ if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
 
 def create_risk_assessment_docx(assessment_content, customer_age, policy_type, filename="risk_assessment_report.docx"):
     """
-    Create a professionally formatted DOCX document for Risk Assessment with proper table handling
+    Create a professionally formatted DOCX document for Risk Assessment with proper markdown parsing
     """
     doc = DocxDocument()
     
@@ -1314,24 +1304,37 @@ def create_risk_assessment_docx(assessment_content, customer_age, policy_type, f
             i = j
             continue
         
-        # Check if it's a heading
-        if is_heading(line):
-            doc.add_heading(line, level=2)
+        # Process markdown headings
+        if line.startswith('###'):
+            clean_heading = clean_markdown_text(line[3:].strip())
+            doc.add_heading(clean_heading, level=3)
+        elif line.startswith('##'):
+            clean_heading = clean_markdown_text(line[2:].strip())
+            doc.add_heading(clean_heading, level=2)
+        elif line.startswith('#'):
+            clean_heading = clean_markdown_text(line[1:].strip())
+            doc.add_heading(clean_heading, level=1)
+        elif is_heading_by_content(line):
+            clean_heading = clean_markdown_text(line)
+            doc.add_heading(clean_heading, level=2)
         elif line.startswith('•') or line.startswith('-') or line.startswith('*'):
             # Handle bullet points
-            doc.add_paragraph(line[1:].strip(), style='List Bullet')
+            clean_text = clean_markdown_text(line[1:].strip())
+            add_formatted_paragraph(doc, clean_text, style='List Bullet')
         elif ':' in line and len(line.split(':', 1)) == 2 and not line.count(':') > 3:
             # Handle key-value pairs (but not calculation lines with multiple colons)
             key, value = line.split(':', 1)
             if len(key.strip()) < 50:  # Reasonable key length
                 p = doc.add_paragraph()
-                p.add_run(f'{key.strip()}: ').bold = True
-                p.add_run(value.strip())
+                clean_key = clean_markdown_text(key.strip())
+                clean_value = clean_markdown_text(value.strip())
+                p.add_run(f'{clean_key}: ').bold = True
+                add_formatted_text_to_paragraph(p, clean_value)
             else:
-                doc.add_paragraph(line)
+                add_formatted_paragraph(doc, clean_markdown_text(line))
         else:
             # Regular paragraph
-            doc.add_paragraph(line)
+            add_formatted_paragraph(doc, clean_markdown_text(line))
         
         i += 1
     
@@ -1350,6 +1353,62 @@ def create_risk_assessment_docx(assessment_content, customer_age, policy_type, f
     
     return buffer
 
+def clean_markdown_text(text):
+    """
+    Remove markdown formatting symbols from text
+    """
+    if not text:
+        return ""
+    
+    # Remove markdown bold/italic markers but preserve the formatting intent
+    # We'll handle the actual formatting in add_formatted_text_to_paragraph
+    text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)  # Remove ** but keep content
+    text = re.sub(r'\*(.*?)\*', r'\1', text)      # Remove * but keep content
+    text = re.sub(r'`(.*?)`', r'\1', text)        # Remove code backticks
+    text = re.sub(r'#{1,6}\s*', '', text)         # Remove heading markers
+    
+    return text.strip()
+
+def add_formatted_paragraph(doc, text, style=None):
+    """
+    Add a paragraph with markdown formatting converted to DOCX formatting
+    """
+    if not text.strip():
+        return
+    
+    p = doc.add_paragraph(style=style)
+    add_formatted_text_to_paragraph(p, text)
+
+def add_formatted_text_to_paragraph(paragraph, text):
+    """
+    Add formatted text to a paragraph, converting markdown to DOCX formatting
+    """
+    if not text:
+        return
+    
+    # Handle bold text **text**
+    parts = re.split(r'(\*\*.*?\*\*)', text)
+    
+    for part in parts:
+        if part.startswith('**') and part.endswith('**'):
+            # Bold text
+            bold_text = part[2:-2]  # Remove the ** markers
+            run = paragraph.add_run(bold_text)
+            run.bold = True
+        else:
+            # Handle italic text *text* within non-bold parts
+            italic_parts = re.split(r'(\*.*?\*)', part)
+            for italic_part in italic_parts:
+                if italic_part.startswith('*') and italic_part.endswith('*') and not italic_part.startswith('**'):
+                    # Italic text
+                    italic_text = italic_part[1:-1]  # Remove the * markers
+                    run = paragraph.add_run(italic_text)
+                    run.italic = True
+                else:
+                    # Regular text
+                    if italic_part:
+                        paragraph.add_run(italic_part)
+
 def detect_table_start(line):
     """
     Detect if a line is the start of a markdown-style table
@@ -1363,9 +1422,9 @@ def detect_table_start(line):
         return len(cells) >= 2 and any(len(cell.strip()) > 0 for cell in cells)
     return False
 
-def is_heading(line):
+def is_heading_by_content(line):
     """
-    Determine if a line should be treated as a heading
+    Determine if a line should be treated as a heading based on content
     """
     heading_keywords = [
         'ANALYSIS', 'ASSESSMENT', 'SUMMARY', 'RECOMMENDATION', 'VIABILITY', 
@@ -1375,8 +1434,12 @@ def is_heading(line):
     
     line_upper = line.upper()
     
+    # Don't treat lines with markdown symbols as headings by content
+    if line.startswith('#') or '**' in line:
+        return False
+    
     # Check for all-caps lines
-    if line.isupper() and len(line) > 3:
+    if line.isupper() and len(line) > 3 and len(line) < 100:
         return True
     
     # Check for lines with heading keywords
@@ -1384,7 +1447,7 @@ def is_heading(line):
         return True
     
     # Check for lines ending with colon (section headers)
-    if line.endswith(':') and len(line) < 100:
+    if line.endswith(':') and len(line) < 100 and not ':' in line[:-1]:
         return True
     
     return False
@@ -1400,7 +1463,7 @@ def create_docx_table(doc, table_lines):
     parsed_rows = []
     for line in table_lines:
         # Remove leading/trailing pipes and split
-        cells = [cell.strip() for cell in line.strip('|').split('|')]
+        cells = [clean_markdown_text(cell.strip()) for cell in line.strip('|').split('|')]
         if cells and any(cell.strip() for cell in cells):  # Skip empty rows
             parsed_rows.append(cells)
     
@@ -1450,7 +1513,7 @@ def create_docx_table(doc, table_lines):
     
     # Add some spacing after the table
     doc.add_paragraph('')
-
+    
 def enhanced_risk_assessment_button():
     """Enhanced Risk Assessment with improved DOCX export option"""
     col_assess, col_export = st.columns([3, 1])
