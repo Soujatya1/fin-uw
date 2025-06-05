@@ -52,7 +52,7 @@ def setup_chatgroq():
             
         llm = ChatGroq(
             groq_api_key=api_key,
-            model_name="mixtral-8x7b-32768",  # You can change this to other models
+            model_name="meta-llama/llama-4-scout-17b-16e-instruct",
             temperature=0.1,
             max_tokens=4000
         )
