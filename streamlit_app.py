@@ -504,6 +504,7 @@ def extract_text_with_simple_table_detection(pdf_path):
                 documents.append(doc)
         
         return documents
+        st.write(documents)
         
     except Exception as e:
         st.error(f"Error with Google Vision API: {str(e)}")
