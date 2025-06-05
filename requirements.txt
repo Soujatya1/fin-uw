@@ -12,3 +12,4 @@ Pillow
 PyMuPDF
 xlsxwriter
 python-docx
+langgraph
