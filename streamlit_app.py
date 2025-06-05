@@ -30,7 +30,7 @@ from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.oxml.shared import OxmlElement, qn
 
 st.set_page_config(
-    page_title="Financial Underwriting Assistant",
+    page_title="Financial Underwriting Assistat",
     page_icon="💰",
     layout="wide"
 )
