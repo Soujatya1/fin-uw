@@ -130,7 +130,7 @@ class FinancialDataExtractor:
         }
         
         self.financial_patterns = {
-            'salary': r'(?:salary|basic\s*pay|gross\s*salary|ctc)[\s:]*[₹$]?\s*([0-9,]+\.?[0-9]*)',
+            'gross_salary': r'(?:gross\s*salary|gross|ctc)[\s:]*[₹$]?\s*([0-9,]+\.?[0-9]*)',
             'investment_amount': r'(?:investment|invested|amount)[\s:]*[₹$]?\s*([0-9,]+\.?[0-9]*)',
             'balance': r'(?:balance|closing\s*balance)[\s:]*[₹$]?\s*([0-9,]+\.?[0-9]*)',
             'credit_limit': r'(?:credit\s*limit)[\s:]*[₹$]?\s*([0-9,]+\.?[0-9]*)',
