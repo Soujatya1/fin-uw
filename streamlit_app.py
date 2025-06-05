@@ -130,7 +130,7 @@ class FinancialDataExtractor:
         }
         
         self.financial_patterns = {
-            'gross_salary': r'(?:gross\s*salary|gross|ctc)[\s:]*[₹$]?\s*([0-9,]+\.?[0-9]*)',
+            'gross_salary': r'(?:gross\s*gross|ctc)[\s:]*[₹$]?\s*([0-9,]+\.?[0-9]*)',
             'investment_amount': r'(?:investment|invested|amount)[\s:]*[₹$]?\s*([0-9,]+\.?[0-9]*)',
             'balance': r'(?:balance|closing\s*balance)[\s:]*[₹$]?\s*([0-9,]+\.?[0-9]*)',
             'credit_limit': r'(?:credit\s*limit)[\s:]*[₹$]?\s*([0-9,]+\.?[0-9]*)',
@@ -729,7 +729,7 @@ Based on the identified document type, customer age ({customer_age}), and policy
 - Term Cases: Annual Salary = Gross Monthly Salary (latest month) × 12; Financial Viability = Annual Salary × Income Multiplier
 - Non-Term Cases: Annual Salary = Gross Monthly Salary (latest month) × 12; Annual Bonus = Annual Salary × 0.10; Total = Annual Salary + Annual Bonus; Financial Viability = Total × Income Multiplier
 
-IMPORTANT: For Salary Slips, always consider "Gross Salary", if not given, return the sum of "Basic + House Rent Allowance + Conveyance Allowance + Special Allowance + Shift Allowance­payout + On Call Allowance­payout".
+IMPORTANT: For Salary Slips, always consider "Gross Salary".
 
 **For Bank Statement (Salaried) - ONLY when salary credits are detected:**
 - Term Cases: Average Monthly Salary (last 3 months) × 12; Add 30% to get Gross Annual Salary; Financial Viability = Gross Annual Salary × Age-based Multiplier
