@@ -52,7 +52,7 @@ def setup_chatgroq():
             
         llm = ChatGroq(
             groq_api_key=api_key,
-            model_name="meta-llama/llama-4-scout-17b-16e-instruct",
+            model_name="mixtral-8x7b-32768",  # You can change this to other models
             temperature=0.1,
             max_tokens=4000
         )
@@ -104,59 +104,147 @@ class LLMDataExtractionAgent:
     def __init__(self):
         self.extraction_prompts = {
             "salary_slip": """
-            You are a financial data extraction expert. Extract the following information from this salary slip text:
-            - Gross salary (monthly)
-            - Basic salary
-            - Month/Period
-            - Any allowances or deductions
-            - Employee name
-            - Company name
+            You are a financial data extraction expert analyzing a salary slip. Please provide a detailed analysis in the following format:
+
+            DOCUMENT ANALYSIS - SALARY SLIP
+            ================================
             
-            Return the data in JSON format with numeric values as numbers (not strings).
+            EMPLOYEE INFORMATION:
+            - Employee Name: [Extract name]
+            - Company Name: [Extract company]
+            - Month/Period: [Extract period]
+            
+            SALARY BREAKDOWN:
+            - Gross Monthly Salary: ₹[amount] 
+            - Basic Salary: ₹[amount]
+            - House Rent Allowance: ₹[amount if found]
+            - Other Allowances: ₹[amount if found]
+            - Total Deductions: ₹[amount if found]
+            - Net Salary: ₹[amount if found]
+            
+            KEY OBSERVATIONS:
+            - [Any important notes about salary structure]
+            - [Consistency indicators]
+            - [Any anomalies or concerns]
+            
+            EXTRACTED NUMERICAL DATA:
+            GROSS_SALARY: [numeric value only]
+            BASIC_SALARY: [numeric value only]
+            NET_SALARY: [numeric value only]
             
             Salary Slip Text:
             {text}
             """,
             
             "bank_statement": """
-            You are a financial data extraction expert. Extract the following information from this bank statement:
-            - All salary credits (look for patterns like "salary", "sal cr", etc.)
-            - Closing balance
-            - Statement period
-            - Account holder name
-            - Transaction dates
+            You are a financial data extraction expert analyzing a bank statement. Please provide a detailed analysis:
+
+            DOCUMENT ANALYSIS - BANK STATEMENT
+            =================================
             
-            Return the data in JSON format. For salary credits, provide an array of amounts.
+            ACCOUNT INFORMATION:
+            - Account Holder: [Extract name]
+            - Account Number: [Extract if visible]
+            - Statement Period: [Extract period]
+            
+            SALARY CREDIT ANALYSIS:
+            - Number of Salary Credits Found: [count]
+            - Salary Credit Amounts: [list all amounts found]
+            - Average Monthly Salary Credit: ₹[calculated average]
+            - Salary Credit Pattern: [regular/irregular]
+            
+            ACCOUNT HEALTH:
+            - Opening Balance: ₹[amount]
+            - Closing Balance: ₹[amount]
+            - Minimum Balance During Period: ₹[amount if found]
+            
+            KEY OBSERVATIONS:
+            - [Income stability assessment]
+            - [Any bounce charges or penalties]
+            - [Regular vs irregular income pattern]
+            
+            EXTRACTED NUMERICAL DATA:
+            SALARY_CREDITS: [comma-separated list of amounts]
+            CLOSING_BALANCE: [numeric value]
+            AVERAGE_MONTHLY_SALARY: [calculated value]
             
             Bank Statement Text:
             {text}
             """,
             
             "itr": """
-            You are a financial data extraction expert. Extract the following information from this ITR document:
-            - Salary income
-            - Business income
-            - Rental income
-            - Interest income
-            - Total income
-            - Tax year
-            - Name of taxpayer
+            You are a financial data extraction expert analyzing an Income Tax Return. Please provide a detailed analysis:
+
+            DOCUMENT ANALYSIS - INCOME TAX RETURN
+            ====================================
             
-            Return the data in JSON format with numeric values as numbers.
+            TAXPAYER INFORMATION:
+            - Name: [Extract name]
+            - PAN: [Extract if visible]
+            - Assessment Year: [Extract year]
+            
+            INCOME BREAKDOWN:
+            - Salary Income: ₹[amount]
+            - Business/Professional Income: ₹[amount if found]
+            - Capital Gains: ₹[amount if found]
+            - Income from House Property: ₹[amount if found]
+            - Income from Other Sources: ₹[amount if found]
+            - Total Income: ₹[calculated total]
+            
+            TAX INFORMATION:
+            - Total Tax Liability: ₹[amount if found]
+            - Tax Paid/TDS: ₹[amount if found]
+            - Refund/Balance Tax: ₹[amount if found]
+            
+            KEY OBSERVATIONS:
+            - [Primary income source analysis]
+            - [Income diversity assessment]
+            - [Tax compliance indicators]
+            
+            EXTRACTED NUMERICAL DATA:
+            SALARY_INCOME: [numeric value]
+            BUSINESS_INCOME: [numeric value]
+            RENTAL_INCOME: [numeric value]
+            TOTAL_INCOME: [numeric value]
             
             ITR Text:
             {text}
             """,
             
             "form16": """
-            You are a financial data extraction expert. Extract the following information from this Form 16:
-            - Gross total income
-            - Tax deducted at source
-            - Financial year
-            - Employee name
-            - Employer name
+            You are a financial data extraction expert analyzing Form 16. Please provide a detailed analysis:
+
+            DOCUMENT ANALYSIS - FORM 16
+            ===========================
             
-            Return the data in JSON format with numeric values as numbers.
+            EMPLOYEE & EMPLOYER DETAILS:
+            - Employee Name: [Extract name]
+            - Employee PAN: [Extract if visible]
+            - Employer Name: [Extract company]
+            - Employer TAN: [Extract if visible]
+            - Financial Year: [Extract year]
+            
+            INCOME & TAX DETAILS:
+            - Gross Total Income: ₹[amount]
+            - Total Income (after deductions): ₹[amount]
+            - Tax Deducted at Source: ₹[amount]
+            - Income Tax: ₹[amount if separate]
+            - Education Cess: ₹[amount if found]
+            
+            DEDUCTIONS CLAIMED:
+            - Section 80C: ₹[amount if found]
+            - Section 80D: ₹[amount if found]
+            - Other Deductions: ₹[amount if found]
+            
+            KEY OBSERVATIONS:
+            - [Tax planning assessment]
+            - [Deduction utilization analysis]
+            - [Income consistency with other documents]
+            
+            EXTRACTED NUMERICAL DATA:
+            GROSS_INCOME: [numeric value]
+            TOTAL_INCOME: [numeric value]
+            TDS_AMOUNT: [numeric value]
             
             Form 16 Text:
             {text}
@@ -171,19 +259,57 @@ class LLMDataExtractionAgent:
                 
                 response = llm.invoke([HumanMessage(content=prompt)])
                 
-                # Try to parse JSON response
-                try:
-                    extracted_data = json.loads(response.content)
-                    return extracted_data
-                except json.JSONDecodeError:
-                    # If JSON parsing fails, try to extract using regex as fallback
-                    st.warning(f"LLM response wasn't valid JSON for {doc_type}, using fallback extraction")
-                    return self._fallback_extraction(text, doc_type)
+                # Parse structured response to extract numerical data
+                extracted_data = self._parse_llm_response(response.content, doc_type)
+                
+                # Store the full LLM analysis for display
+                extracted_data["llm_analysis"] = response.content
+                
+                return extracted_data
             
             return {}
         except Exception as e:
             st.error(f"LLM extraction error: {str(e)}")
             return self._fallback_extraction(text, doc_type)
+    
+    def _parse_llm_response(self, response_text: str, doc_type: str) -> Dict[str, Any]:
+        """Parse structured LLM response to extract numerical data"""
+        extracted_data = {}
+        
+        # Look for the EXTRACTED NUMERICAL DATA section
+        lines = response_text.split('\n')
+        in_data_section = False
+        
+        for line in lines:
+            if "EXTRACTED NUMERICAL DATA:" in line:
+                in_data_section = True
+                continue
+            
+            if in_data_section and line.strip():
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    key = key.strip()
+                    value = value.strip()
+                    
+                    # Handle different data types
+                    if key == "SALARY_CREDITS":
+                        # Parse comma-separated list
+                        try:
+                            amounts = [float(x.strip()) for x in value.split(',') if x.strip().replace('.','').isdigit()]
+                            extracted_data["salary_credits"] = amounts
+                        except:
+                            pass
+                    else:
+                        # Try to extract numeric value
+                        try:
+                            # Remove currency symbols and commas
+                            clean_value = re.sub(r'[₹,\s]', '', value)
+                            if clean_value.replace('.', '').isdigit():
+                                extracted_data[key.lower().replace('_', '_')] = float(clean_value)
+                        except:
+                            extracted_data[key.lower().replace('_', '_')] = value
+        
+        return extracted_data
     
     def _fallback_extraction(self, text: str, doc_type: str) -> Dict[str, Any]:
         """Fallback regex extraction if LLM fails"""
@@ -236,33 +362,96 @@ class LLMDataExtractionAgent:
 class LLMCalculationAgent:
     def __init__(self):
         self.calculation_prompt = """
-        You are a financial underwriting expert. Calculate the financial viability for life insurance based on the following:
+        You are a senior financial underwriter with 15+ years of experience. Analyze the following case and provide detailed calculations:
 
-        Customer Details:
-        - Age: {age}
-        - Case Type: {case_type}
-
-        Document Data:
+        CASE DETAILS:
+        =============
+        Customer Age: {age} years
+        Insurance Type: {case_type}
+        
+        DOCUMENT ANALYSIS:
+        ==================
         {document_data}
 
-        Underwriting Guidelines:
-        1. Age-based multipliers for Term Insurance:
-           - 18-30: 25x, 31-35: 25x, 36-40: 20x, 41-45: 15x, 46-50: 12x, 51-55: 10x, 56+: 5x
+        UNDERWRITING GUIDELINES:
+        ========================
         
-        2. Age-based multipliers for Non-Term Insurance:
-           - 18-30: 35x, 31-35: 30x, 36-40: 25x, 41-45: 20x, 46-50: 15x, 51-65: 10x, 66+: 6x
+        AGE-BASED MULTIPLIERS:
+        
+        For Term Life Insurance:
+        • Ages 18-30: 25x annual income
+        • Ages 31-35: 25x annual income  
+        • Ages 36-40: 20x annual income
+        • Ages 41-45: 15x annual income
+        • Ages 46-50: 12x annual income
+        • Ages 51-55: 10x annual income
+        • Ages 56+: 5x annual income
+        
+        For Non-Term Life Insurance:
+        • Ages 18-30: 35x annual income
+        • Ages 31-35: 30x annual income
+        • Ages 36-40: 25x annual income
+        • Ages 41-45: 20x annual income
+        • Ages 46-50: 15x annual income
+        • Ages 51-65: 10x annual income
+        • Ages 66+: 6x annual income
 
-        3. Document-specific calculations:
-           - Salary Slip: For Term - use annual salary × multiplier; For Non-Term - add 10% bonus then × multiplier
-           - Bank Statement: For Term - last 3 months avg + 30%, then × 12 × multiplier; For Non-Term - last 6 months avg × 12 × multiplier
-           - ITR: For Term - only earned income × multiplier; For Non-Term - all income × multiplier
+        DOCUMENT-SPECIFIC CALCULATION RULES:
+        ====================================
+        
+        SALARY SLIP CALCULATIONS:
+        • Term Insurance: Annual salary × appropriate multiplier
+        • Non-Term Insurance: (Annual salary + 10% bonus) × appropriate multiplier
+        
+        BANK STATEMENT CALCULATIONS:
+        • Term Insurance: Average of last 3 months salary + 30% grossing up, then × 12 × multiplier
+        • Non-Term Insurance: Average of last 6 months salary × 12 × multiplier
+        
+        ITR CALCULATIONS:
+        • Term Insurance: Only earned income (salary + business) × multiplier
+        • Non-Term Insurance: Total income (including rental, interest) × multiplier
+        
+        FORM 16 CALCULATIONS:
+        • Use gross total income × appropriate multiplier
 
-        Calculate and return results in JSON format with:
-        - financial_viability: final calculated amount
-        - calculation_method: explanation of how it was calculated
-        - annual_income: calculated annual income
-        - multiplier_used: age-based multiplier applied
-        - risk_factors: any identified risk factors
+        Please provide your analysis in the following format:
+
+        FINANCIAL VIABILITY CALCULATION
+        ==============================
+        
+        INCOME ASSESSMENT:
+        • Primary Income Source: [source and amount]
+        • Monthly Income: ₹[amount]
+        • Annual Income: ₹[amount]
+        • Income Adjustments: [any adjustments made]
+        • Final Annual Income: ₹[amount]
+        
+        MULTIPLIER APPLICATION:
+        • Customer Age: {age} years
+        • Insurance Type: {case_type}
+        • Applicable Multiplier: [X]x
+        • Justification: [why this multiplier applies]
+        
+        FINANCIAL VIABILITY CALCULATION:
+        • Formula: ₹[final annual income] × [multiplier]
+        • Financial Viability: ₹[final calculated amount]
+        
+        RISK ASSESSMENT:
+        • Income Stability: [High/Medium/Low]
+        • Documentation Quality: [Excellent/Good/Fair/Poor]
+        • Consistency Check: [Pass/Fail with explanation]
+        • Overall Risk Level: [Low/Medium/High]
+        
+        KEY OBSERVATIONS:
+        • [Important findings about the customer's financial profile]
+        • [Any red flags or positive indicators]
+        • [Recommendations for underwriting decision]
+        
+        NUMERICAL SUMMARY:
+        ANNUAL_INCOME: [numeric value]
+        MULTIPLIER: [numeric value]
+        FINANCIAL_VIABILITY: [numeric value]
+        RISK_SCORE: [1-10 scale]
         """
     
     def process_calculations(self, state: UnderwritingState) -> UnderwritingState:
@@ -271,25 +460,34 @@ class LLMCalculationAgent:
         calculations = {}
         
         age = state["age"]
-        case_type = "Term" if state["is_term_case"] else "Non-Term"
+        case_type = "Term Life Insurance" if state["is_term_case"] else "Non-Term Life Insurance"
         
         for doc_name, doc_info in state["extracted_data"]["structured_data"].items():
             try:
+                # Format document data for LLM
+                doc_data_str = f"Document Type: {doc_info['type']}\n"
+                doc_data_str += f"Document Name: {doc_name}\n"
+                doc_data_str += "Extracted Data:\n"
+                
+                for key, value in doc_info['data'].items():
+                    if key != "llm_analysis":  # Skip the analysis text
+                        doc_data_str += f"  {key}: {value}\n"
+                
                 prompt = self.calculation_prompt.format(
                     age=age,
                     case_type=case_type,
-                    document_data=json.dumps(doc_info, indent=2)
+                    document_data=doc_data_str
                 )
                 
                 response = llm.invoke([HumanMessage(content=prompt)])
                 
-                # Parse LLM response
-                try:
-                    calc_result = json.loads(response.content)
-                    calculations[doc_name] = calc_result
-                except json.JSONDecodeError:
-                    # Fallback calculation
-                    calculations[doc_name] = self._fallback_calculation(doc_info, age, state["is_term_case"])
+                # Parse numerical data from response
+                calc_result = self._parse_calculation_response(response.content)
+                
+                # Store full LLM analysis
+                calc_result["llm_calculation_analysis"] = response.content
+                
+                calculations[doc_name] = calc_result
                     
             except Exception as e:
                 st.error(f"Calculation error for {doc_name}: {str(e)}")
@@ -298,6 +496,42 @@ class LLMCalculationAgent:
         state["calculations"] = calculations
         state["current_step"] = "recommendation"
         return state
+    
+    def _parse_calculation_response(self, response_text: str) -> Dict:
+        """Parse calculation response to extract numerical data"""
+        result = {}
+        
+        # Look for NUMERICAL SUMMARY section
+        lines = response_text.split('\n')
+        in_summary_section = False
+        
+        for line in lines:
+            if "NUMERICAL SUMMARY:" in line:
+                in_summary_section = True
+                continue
+            
+            if in_summary_section and line.strip() and ':' in line:
+                key, value = line.split(':', 1)
+                key = key.strip()
+                value = value.strip()
+                
+                try:
+                    # Clean and convert numeric values
+                    clean_value = re.sub(r'[₹,\s]', '', value)
+                    if clean_value.replace('.', '').isdigit():
+                        result[key.lower()] = float(clean_value)
+                    else:
+                        result[key.lower()] = value
+                except:
+                    result[key.lower()] = value
+        
+        # Also try to extract key amounts from the text
+        financial_viability_match = re.search(r'Financial Viability:\s*₹([0-9,]+)', response_text)
+        if financial_viability_match:
+            amount = financial_viability_match.group(1).replace(',', '')
+            result['financial_viability'] = float(amount)
+        
+        return result
     
     def _fallback_calculation(self, doc_info: Dict, age: int, is_term: bool) -> Dict:
         """Simple fallback calculation"""
@@ -329,30 +563,89 @@ class LLMCalculationAgent:
 class LLMRecommendationAgent:
     def __init__(self):
         self.recommendation_prompt = """
-        You are a senior underwriting manager. Based on the following financial analysis, provide comprehensive underwriting recommendations:
+        You are the Chief Underwriting Officer of a leading life insurance company with 20+ years of experience. 
+        Review the following underwriting case and provide your executive recommendation:
 
-        Customer Profile:
-        - Age: {age}
-        - Case Type: {case_type}
-
-        Financial Calculations:
+        CASE SUMMARY:
+        =============
+        Customer Age: {age} years
+        Insurance Type: {case_type}
+        
+        FINANCIAL ANALYSIS RESULTS:
+        ===========================
         {calculations}
 
-        Provide recommendations in JSON format with:
-        - approved_amount: highest viable amount
-        - risk_assessment: Low/Medium/High
-        - confidence_score: 1-10 scale
-        - recommendations: array of specific recommendations
-        - required_documents: any additional documents needed
-        - approval_conditions: any conditions for approval
-        - summary: brief executive summary
-        - red_flags: any concerns identified
+        UNDERWRITING DECISION FRAMEWORK:
+        ================================
+        
+        APPROVAL THRESHOLDS:
+        • Ages 18-40: Up to ₹5 Crores (standard approval)
+        • Ages 41-50: Up to ₹3 Crores (standard approval)  
+        • Ages 51-60: Up to ₹2 Crores (standard approval)
+        • Ages 60+: Up to ₹1 Crore (standard approval)
+        
+        RISK CATEGORIES:
+        • Low Risk: Stable employment, consistent income, good documentation
+        • Medium Risk: Some inconsistencies, requires additional verification
+        • High Risk: Significant concerns, senior management approval required
+        
+        DOCUMENTATION REQUIREMENTS:
+        • Excellent: All documents consistent, no additional requirements
+        • Good: Minor clarifications needed
+        • Fair: Additional documents required
+        • Poor: Significant documentation gaps, high risk
 
-        Consider factors like:
-        - Consistency across documents
-        - Income stability
-        - Age-appropriate coverage
-        - Risk indicators
+        Please provide your comprehensive recommendation in the following format:
+
+        EXECUTIVE UNDERWRITING RECOMMENDATION
+        ====================================
+        
+        CASE OVERVIEW:
+        • Customer Profile: [Brief customer summary]
+        • Application Type: {case_type}
+        • Total Documents Reviewed: [number]
+        • Primary Income Source: [source]
+        
+        FINANCIAL ASSESSMENT:
+        • Highest Calculated Amount: ₹[amount]
+        • Recommended Approval Amount: ₹[amount]
+        • Basis for Recommendation: [Best document/calculation used]
+        • Income Verification Status: [Verified/Pending/Concerns]
+        
+        RISK EVALUATION:
+        • Overall Risk Rating: [Low/Medium/High]
+        • Risk Factors Identified:
+          - [List specific risk factors]
+        • Mitigating Factors:
+          - [List positive factors]
+        • Confidence Level: [1-10 scale]
+        
+        COMPLIANCE & DOCUMENTATION:
+        • Documentation Completeness: [Excellent/Good/Fair/Poor]
+        • Additional Documents Required:
+          - [List any additional documents needed]
+        • Compliance Concerns: [Any regulatory concerns]
+        
+        UNDERWRITING CONDITIONS:
+        • Medical Requirements: [Standard/Enhanced/Specialized]
+        • Financial Conditions: [Any specific conditions]
+        • Policy Restrictions: [Any restrictions to be applied]
+        • Review Period: [When to review the case]
+        
+        FINAL RECOMMENDATION:
+        • Decision: [APPROVE/DECLINE/REFER TO SENIOR UNDERWRITER]
+        • Approved Amount: ₹[final amount]
+        • Validity Period: [How long this decision is valid]
+        • Next Steps: [What needs to happen next]
+        
+        EXECUTIVE SUMMARY:
+        [2-3 sentence summary of the key recommendation and rationale]
+        
+        NUMERICAL SUMMARY:
+        APPROVED_AMOUNT: [numeric value]
+        RISK_SCORE: [1-10 numeric value]
+        CONFIDENCE_SCORE: [1-10 numeric value]
+        DOCUMENTATION_SCORE: [1-10 numeric value]
         """
     
     def generate_recommendations(self, state: UnderwritingState) -> UnderwritingState:
@@ -360,19 +653,35 @@ class LLMRecommendationAgent:
         llm = state["chat_groq"]
         
         try:
+            # Format calculations for LLM
+            calc_summary = ""
+            for doc_name, calc in state["calculations"].items():
+                calc_summary += f"\nDocument: {doc_name}\n"
+                calc_summary += f"Financial Viability: ₹{calc.get('financial_viability', 0):,.0f}\n"
+                calc_summary += f"Risk Score: {calc.get('risk_score', 'N/A')}\n"
+                if 'llm_calculation_analysis' in calc:
+                    # Include key points from calculation analysis
+                    analysis_lines = calc['llm_calculation_analysis'].split('\n')
+                    for line in analysis_lines:
+                        if any(keyword in line.upper() for keyword in ['RISK', 'INCOME', 'VIABILITY', 'OBSERVATION']):
+                            calc_summary += f"  {line.strip()}\n"
+                calc_summary += "---\n"
+            
+            case_type = "Term Life Insurance" if state["is_term_case"] else "Non-Term Life Insurance"
+            
             prompt = self.recommendation_prompt.format(
                 age=state["age"],
-                case_type="Term" if state["is_term_case"] else "Non-Term",
-                calculations=json.dumps(state["calculations"], indent=2)
+                case_type=case_type,
+                calculations=calc_summary
             )
             
             response = llm.invoke([HumanMessage(content=prompt)])
             
-            try:
-                recommendations = json.loads(response.content)
-            except json.JSONDecodeError:
-                # Fallback recommendations
-                recommendations = self._fallback_recommendations(state)
+            # Parse numerical data from response
+            recommendations = self._parse_recommendation_response(response.content)
+            
+            # Store full LLM analysis
+            recommendations["llm_recommendation_analysis"] = response.content
             
         except Exception as e:
             st.error(f"Recommendation generation error: {str(e)}")
@@ -381,6 +690,59 @@ class LLMRecommendationAgent:
         state["recommendations"] = recommendations
         state["current_step"] = "complete"
         return state
+    
+    def _parse_recommendation_response(self, response_text: str) -> Dict:
+        """Parse recommendation response to extract key data"""
+        result = {}
+        
+        # Extract decision
+        if "APPROVE" in response_text.upper():
+            result["decision"] = "APPROVED"
+        elif "DECLINE" in response_text.upper():
+            result["decision"] = "DECLINED"
+        elif "REFER" in response_text.upper():
+            result["decision"] = "REFER TO SENIOR"
+        else:
+            result["decision"] = "PENDING REVIEW"
+        
+        # Extract numerical summary
+        lines = response_text.split('\n')
+        in_summary_section = False
+        
+        for line in lines:
+            if "NUMERICAL SUMMARY:" in line:
+                in_summary_section = True
+                continue
+            
+            if in_summary_section and line.strip() and ':' in line:
+                key, value = line.split(':', 1)
+                key = key.strip()
+                value = value.strip()
+                
+                try:
+                    clean_value = re.sub(r'[₹,\s]', '', value)
+                    if clean_value.replace('.', '').isdigit():
+                        result[key.lower()] = float(clean_value)
+                    else:
+                        result[key.lower()] = value
+                except:
+                    result[key.lower()] = value
+        
+        # Extract approved amount from text
+        approved_match = re.search(r'Approved Amount:\s*₹([0-9,]+)', response_text)
+        if approved_match:
+            amount = approved_match.group(1).replace(',', '')
+            result['approved_amount'] = float(amount)
+        
+        # Extract risk assessment
+        if "Low Risk" in response_text or "LOW RISK" in response_text:
+            result["risk_assessment"] = "Low"
+        elif "High Risk" in response_text or "HIGH RISK" in response_text:
+            result["risk_assessment"] = "High"
+        else:
+            result["risk_assessment"] = "Medium"
+        
+        return result
     
     def _fallback_recommendations(self, state: UnderwritingState) -> Dict:
         """Simple fallback recommendations"""
@@ -437,7 +799,7 @@ def main():
         st.header("🤖 LLM Settings")
         model_name = st.selectbox(
             "ChatGroq Model",
-            ["meta-llama/llama-4-scout-17b-16e-instruct"],
+            ["mixtral-8x7b-32768", "llama2-70b-4096", "gemma-7b-it"],
             help="Select the ChatGroq model to use"
         )
         
