@@ -653,7 +653,7 @@ def split_text(documents):
 def extract_financial_info(documents):
     financial_keywords = [
         "salary", "income", "annual income", "monthly income", 
-        "basic pay", "gross salary", "net salary", "CTC",
+        "basic pay", "gross salary", "CTC",
         "ITR", "income tax return", "form 16", "tax",
         "mutual fund", "SIP", "investment", "portfolio",
         "credit card", "investment amount", "units", "NAV",
