@@ -30,7 +30,7 @@ from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.oxml.shared import OxmlElement, qn
 
 st.set_page_config(
-    page_title="Financial Underwriting Assistat",
+    page_title="Financial Underwriting Assistant",
     page_icon="💰",
     layout="wide"
 )
@@ -38,6 +38,7 @@ st.set_page_config(
 st.title("💰 Financial Underwriting Assistant")
 
 def get_income_multiplier(age: int, policy_type: str) -> int:
+    """Get income multiplier based on age and policy type"""
     if policy_type.lower() == "term":
         if 18 <= age <= 30:
             return 25
@@ -330,135 +331,7 @@ def pdf_to_images(pdf_path):
         st.error(f"Error converting PDF to images: {str(e)}")
         return []
 
-def extract_table_from_blocks(blocks):
-    """Extract table structure from Vision API blocks"""
-    tables = []
-    
-    for block in blocks:
-        if hasattr(block, 'paragraphs'):
-            # Group text by approximate rows based on y-coordinates
-            paragraphs = []
-            for paragraph in block.paragraphs:
-                para_text = ""
-                for word in paragraph.words:
-                    word_text = "".join([symbol.text for symbol in word.symbols])
-                    para_text += word_text + " "
-                
-                # Get bounding box for positioning
-                if paragraph.bounding_box:
-                    vertices = paragraph.bounding_box.vertices
-                    y_coord = min([v.y for v in vertices])
-                    paragraphs.append({
-                        'text': para_text.strip(),
-                        'y': y_coord,
-                        'x': min([v.x for v in vertices])
-                    })
-            
-            # Sort by y-coordinate (top to bottom) then x-coordinate (left to right)
-            paragraphs.sort(key=lambda p: (p['y'], p['x']))
-            
-            # Group into rows based on similar y-coordinates
-            if paragraphs:
-                rows = []
-                current_row = [paragraphs[0]]
-                current_y = paragraphs[0]['y']
-                
-                for para in paragraphs[1:]:
-                    # If y-coordinate is similar (within threshold), add to current row
-                    if abs(para['y'] - current_y) < 20:  # Adjust threshold as needed
-                        current_row.append(para)
-                    else:
-                        # Start new row
-                        if current_row:
-                            rows.append(current_row)
-                        current_row = [para]
-                        current_y = para['y']
-                
-                if current_row:
-                    rows.append(current_row)
-                
-                # Convert to table format
-                if len(rows) > 1:  # Only consider as table if multiple rows
-                    table_data = []
-                    for row in rows:
-                        # Sort cells in row by x-coordinate
-                        row.sort(key=lambda cell: cell['x'])
-                        table_data.append([cell['text'] for cell in row])
-                    
-                    tables.append(table_data)
-    
-    return tables
-
-def extract_text_with_vision_enhanced(pdf_path):
-    """Enhanced version that better handles tables"""
-    vision_client = setup_vision_client()
-    if not vision_client:
-        return []
-    
-    try:
-        images = pdf_to_images(pdf_path)
-        documents = []
-        
-        for img_info in images:
-            image = vision.Image(content=img_info["data"])
-            
-            # Use document_text_detection for better structure preservation
-            response = vision_client.document_text_detection(image=image)
-            
-            if response.error.message:
-                st.error(f"Vision API error: {response.error.message}")
-                continue
-            
-            # Extract regular text
-            if response.full_text_annotation:
-                full_text = response.full_text_annotation.text
-                
-                # Try to extract tables from blocks
-                tables = extract_table_from_blocks(response.full_text_annotation.pages[0].blocks)
-                
-                # Create document with both text and table info
-                metadata = {
-                    "source": pdf_path,
-                    "page": img_info["page"],
-                    "type": "scanned_text",
-                    "extraction_method": "google_vision_enhanced"
-                }
-                
-                # Add table information to metadata if found
-                if tables:
-                    metadata["tables"] = tables
-                    metadata["has_tables"] = True
-                    
-                    # Create formatted table text
-                    table_text = "\n\n--- TABLES DETECTED ---\n"
-                    for i, table in enumerate(tables):
-                        table_text += f"\nTable {i+1}:\n"
-                        for row in table:
-                            table_text += " | ".join(row) + "\n"
-                    
-                    full_text += table_text
-                else:
-                    metadata["has_tables"] = False
-                
-                doc = Document(
-                    page_content=full_text,
-                    metadata=metadata
-                )
-                documents.append(doc)
-        
-        return documents
-        
-    except Exception as e:
-        st.error(f"Error with Google Vision API: {str(e)}")
-        return []
-
 def extract_text_with_vision(pdf_path):
-    """Original function - now calls enhanced version"""
-    return extract_text_with_vision_enhanced(pdf_path)
-
-# Alternative: Simple table detection approach
-def extract_text_with_simple_table_detection(pdf_path):
-    """Simpler approach that just identifies potential table content"""
     vision_client = setup_vision_client()
     if not vision_client:
         return []
@@ -470,41 +343,28 @@ def extract_text_with_simple_table_detection(pdf_path):
         for img_info in images:
             image = vision.Image(content=img_info["data"])
             
-            response = vision_client.document_text_detection(image=image)
+            response = vision_client.text_detection(image=image)
             
             if response.error.message:
                 st.error(f"Vision API error: {response.error.message}")
                 continue
             
-            if response.full_text_annotation:
-                full_text = response.full_text_annotation.text
-                
-                # Simple heuristic to detect tables
-                lines = full_text.split('\n')
-                table_indicators = 0
-                
-                for line in lines:
-                    # Count lines with multiple separated values
-                    if len(line.split()) > 3 and any(sep in line for sep in ['|', '\t', '  ']):
-                        table_indicators += 1
-                
-                has_table = table_indicators > 2  # If multiple lines look tabular
+            texts = response.text_annotations
+            if texts:
+                extracted_text = texts[0].description
                 
                 doc = Document(
-                    page_content=full_text,
+                    page_content=extracted_text,
                     metadata={
                         "source": pdf_path,
                         "page": img_info["page"],
                         "type": "scanned_text",
-                        "extraction_method": "google_vision",
-                        "likely_has_table": has_table,
-                        "table_indicators": table_indicators
+                        "extraction_method": "google_vision"
                     }
                 )
                 documents.append(doc)
         
         return documents
-        st.write(documents)
         
     except Exception as e:
         st.error(f"Error with Google Vision API: {str(e)}")
