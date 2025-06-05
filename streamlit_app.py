@@ -1,30 +1,300 @@
 import streamlit as st
-import pandas as pd
-from google.cloud import vision
-import io
-import base64
-from typing import Dict, List, Any, Optional, TypedDict
-from langgraph.graph import Graph, StateGraph, END
-from langchain_core.messages import HumanMessage, AIMessage
-from langchain_groq import ChatGroq
-import json
+import os
 import re
+import hashlib
+from typing import List, Dict, Tuple
+import pdfplumber
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_core.vectorstores import InMemoryVectorStore
+from langchain_groq import ChatGroq
+from langchain_core.prompts import ChatPromptTemplate
+from langchain.embeddings import HuggingFaceEmbeddings
+import pandas as pd
+from langchain_core.documents import Document
+
+from google.cloud import vision
+from google.oauth2 import service_account
+import json
+import fitz
+from PIL import Image
+import io
+
 from datetime import datetime
-import numpy as np
+import xlsxwriter
+from io import BytesIO
 
-# State definition for LangGraph
-class UnderwritingState(TypedDict):
-    documents: List[Dict[str, Any]]
-    extracted_data: Dict[str, Any]
-    calculations: Dict[str, Any]
-    recommendations: Dict[str, Any]
-    errors: List[str]
-    current_step: str
-    age: int
-    is_term_case: bool
-    chat_groq: Any
+from docx import Document as DocxDocument
+from docx.shared import Inches, Pt
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.table import WD_TABLE_ALIGNMENT
+from docx.oxml.shared import OxmlElement, qn
 
-# Google Vision OCR Setup
+st.set_page_config(
+    page_title="Financial Underwriting Assistant",
+    page_icon="💰",
+    layout="wide"
+)
+
+st.title("💰 Financial Underwriting Assistant")
+
+def get_income_multiplier(age: int, policy_type: str) -> int:
+    """Get income multiplier based on age and policy type"""
+    if policy_type.lower() == "term":
+        if 18 <= age <= 30:
+            return 25
+        elif 31 <= age <= 35:
+            return 25
+        elif 36 <= age <= 40:
+            return 20
+        elif 41 <= age <= 45:
+            return 15
+        elif 46 <= age <= 50:
+            return 12
+        elif 51 <= age <= 55:
+            return 10
+        elif age >= 56:
+            return 5
+    else:
+        if 18 <= age <= 30:
+            return 35
+        elif 31 <= age <= 35:
+            return 30
+        elif 36 <= age <= 40:
+            return 25
+        elif 41 <= age <= 45:
+            return 20
+        elif 46 <= age <= 50:
+            return 15
+        elif 51 <= age <= 65:
+            return 10
+        elif age > 65:
+            return 6
+    
+    return 10
+
+class PIIShield:
+    def __init__(self):
+        self.pii_patterns = {
+            'pan_card': r'\b[A-Z]{5}[-\s]?[0-9]{4}[-\s]?[A-Z]\b',
+            'tan': r'\b[A-Z]{4}[-\s]?[0-9]{5}[-\s]?[A-Z]\b',
+            'aadhaar': r'\b\d{4}\s?\d{4}\s?\d{4}\b',
+            'account_number': r'\b\d{9,18}\b',
+            'phone': r'\b(?:\+91[-.\s]?)?[6-9]\d{9}\b',
+            'email': r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
+            'address': r'\b(?:house|flat|plot|door)\s*(?:no\.?|number)?\s*[0-9A-Za-z\-\/]+\b',
+            'ifsc': r'\b[A-Z]{4}0[A-Z0-9]{6}\b'
+        }
+        
+        self.replacement_map = {}
+        self.anonymization_enabled = True
+    
+    def anonymize_text(self, text: str) -> str:
+        if not self.anonymization_enabled:
+            return text
+            
+        anonymized_text = text
+        
+        for pii_type, pattern in self.pii_patterns.items():
+            matches = re.finditer(pattern, text, re.IGNORECASE)
+            for match in matches:
+                original = match.group()
+                
+                if original not in self.replacement_map:
+                    self.replacement_map[original] = "###########"
+                
+                anonymized_text = anonymized_text.replace(original, self.replacement_map[original])
+        
+        return anonymized_text
+    
+    def get_pii_summary(self) -> Dict[str, int]:
+        pii_summary = {}
+        for original, anonymized in self.replacement_map.items():
+            for pii_type, pattern in self.pii_patterns.items():
+                if re.match(pattern, original, re.IGNORECASE):
+                    pii_summary[pii_type] = pii_summary.get(pii_type, 0) + 1
+                    break
+        return pii_summary
+
+class FinancialDataExtractor:
+    def __init__(self):
+        self.extracted_data = {
+            'personal_info': [],
+            'income_details': [],
+            'investment_details': [],
+            'bank_details': [],
+            'loan_details': [],
+            'tax_details': [],
+            'tables_data': [],
+            'raw_text_data': [],
+            'salary_credits': []
+        }
+        
+        self.financial_patterns = {
+            'gross_salary': r'(?:gross\s*gross|ctc)[\s:]*[₹$]?\s*([0-9,]+\.?[0-9]*)',
+            'investment_amount': r'(?:investment|invested|amount)[\s:]*[₹$]?\s*([0-9,]+\.?[0-9]*)',
+            'balance': r'(?:balance|closing\s*balance)[\s:]*[₹$]?\s*([0-9,]+\.?[0-9]*)',
+            'credit_limit': r'(?:credit\s*limit)[\s:]*[₹$]?\s*([0-9,]+\.?[0-9]*)',
+            'emi': r'(?:emi|monthly\s*installment)[\s:]*[₹$]?\s*([0-9,]+\.?[0-9]*)',
+            'tax_paid': r'(?:tax\s*paid|income\s*tax)[\s:]*[₹$]?\s*([0-9,]+\.?[0-9]*)'
+        }
+    
+    def extract_from_documents(self, documents):
+        for doc in documents:
+            content = doc.page_content
+            metadata = doc.metadata
+            
+            if metadata.get("type") == "table":
+                self.extract_table_data(content, metadata)
+            else:
+                self.extract_text_data(content, metadata)
+        
+        return self.extracted_data
+    
+    def extract_table_data(self, content, metadata):
+        lines = content.split('\n')
+        table_data = []
+        
+        for line in lines:
+            if line.strip() and not line.startswith('---'):
+                amounts = re.findall(r'[₹$]?\s*([0-9,]+\.?[0-9]*)', line)
+                if amounts:
+                    table_data.append({
+                        'source': metadata.get('source', ''),
+                        'page': metadata.get('page', ''),
+                        'table_number': metadata.get('table_number', ''),
+                        'content': line.strip(),
+                        'extracted_amounts': amounts
+                    })
+        
+        if table_data:
+            self.extracted_data['tables_data'].extend(table_data)
+    
+    def extract_text_data(self, content, metadata):
+        content_lower = content.lower()
+        
+        for pattern_name, pattern in self.financial_patterns.items():
+            matches = re.finditer(pattern, content_lower, re.IGNORECASE)
+            for match in matches:
+                extracted_item = {
+                    'source': metadata.get('source', ''),
+                    'page': metadata.get('page', ''),
+                    'type': pattern_name,
+                    'value': match.group(1),
+                    'context': content[max(0, match.start()-50):match.end()+50].strip()
+                }
+                
+                if any(keyword in content_lower for keyword in ['salary', 'income', 'pay']):
+                    self.extracted_data['income_details'].append(extracted_item)
+                elif any(keyword in content_lower for keyword in ['investment', 'mutual fund', 'sip']):
+                    self.extracted_data['investment_details'].append(extracted_item)
+                elif any(keyword in content_lower for keyword in ['bank', 'account', 'balance']):
+                    self.extracted_data['bank_details'].append(extracted_item)
+                elif any(keyword in content_lower for keyword in ['loan', 'emi', 'credit']):
+                    self.extracted_data['loan_details'].append(extracted_item)
+                elif any(keyword in content_lower for keyword in ['tax', 'itr']):
+                    self.extracted_data['tax_details'].append(extracted_item)
+        
+        self.extracted_data['raw_text_data'].append({
+            'source': metadata.get('source', ''),
+            'page': metadata.get('page', ''),
+            'content': content[:500] + '...' if len(content) > 500 else content
+        })
+
+def create_excel_export(extracted_data, filename="financial_data_export.xlsx"):
+    buffer = BytesIO()
+    
+    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+        workbook = writer.book
+        
+        header_format = workbook.add_format({
+            'bold': True,
+            'bg_color': '#4472C4',
+            'font_color': 'white',
+            'border': 1
+        })
+        
+        cell_format = workbook.add_format({
+            'border': 1,
+            'text_wrap': True
+        })
+        
+        amount_format = workbook.add_format({
+            'border': 1,
+            'num_format': '#,##0.00'
+        })
+        
+        summary_data = []
+        for category, items in extracted_data.items():
+            if category != 'raw_text_data' and items:
+                summary_data.append({
+                    'Category': category.replace('_', ' ').title(),
+                    'Items Count': len(items),
+                    'Description': f"Contains {len(items)} extracted items"
+                })
+        
+        if summary_data:
+            summary_df = pd.DataFrame(summary_data)
+            summary_df.to_excel(writer, sheet_name='Summary', index=False)
+            worksheet = writer.sheets['Summary']
+            worksheet.set_column('A:C', 20)
+        
+        for category, items in extracted_data.items():
+            if not items or category == 'raw_text_data':
+                continue
+                
+            sheet_name = category.replace('_', ' ').title()[:31]
+            
+            if category == 'tables_data':
+                df_data = []
+                for item in items:
+                    df_data.append({
+                        'Source': item.get('source', ''),
+                        'Page': item.get('page', ''),
+                        'Table Number': item.get('table_number', ''),
+                        'Content': item.get('content', ''),
+                        'Extracted Amounts': ', '.join(item.get('extracted_amounts', []))
+                    })
+                df = pd.DataFrame(df_data)
+            else:
+                df_data = []
+                for item in items:
+                    df_data.append({
+                        'Source': item.get('source', ''),
+                        'Page': item.get('page', ''),
+                        'Type': item.get('type', ''),
+                        'Value': item.get('value', ''),
+                        'Context': item.get('context', '')
+                    })
+                df = pd.DataFrame(df_data)
+            
+            if not df.empty:
+                df.to_excel(writer, sheet_name=sheet_name, index=False)
+                worksheet = writer.sheets[sheet_name]
+                
+                for col_num, col_name in enumerate(df.columns):
+                    if col_name in ['Value', 'Extracted Amounts']:
+                        worksheet.set_column(col_num, col_num, 15, amount_format)
+                    elif col_name in ['Context', 'Content']:
+                        worksheet.set_column(col_num, col_num, 40, cell_format)
+                    else:
+                        worksheet.set_column(col_num, col_num, 20, cell_format)
+                
+                for col_num, _ in enumerate(df.columns):
+                    worksheet.write(0, col_num, df.columns[col_num], header_format)
+        
+        if extracted_data.get('raw_text_data'):
+            raw_data = extracted_data['raw_text_data'][:100]
+            df_raw = pd.DataFrame(raw_data)
+            df_raw.to_excel(writer, sheet_name='Raw Text Data', index=False)
+            worksheet = writer.sheets['Raw Text Data']
+            worksheet.set_column('A:C', 30, cell_format)
+    
+    buffer.seek(0)
+    return buffer
+
+pii_shield = PIIShield()
+financial_extractor = FinancialDataExtractor()
+
 def setup_vision_client():
     try:
         api_key = st.session_state.get('google_vision_api_key')
@@ -41,973 +311,1448 @@ def setup_vision_client():
         st.error(f"Error setting up Google Vision client: {str(e)}")
         return None
 
-# Setup ChatGroq
-def setup_chatgroq():
+def pdf_to_images(pdf_path):
     try:
-        api_key = st.session_state.get('groq_api_key')
+        doc = fitz.open(pdf_path)
+        images = []
         
-        if not api_key:
-            st.error("⚠️ Please enter your Groq API key in the sidebar.")
-            return None
-            
-        llm = ChatGroq(
-            groq_api_key=api_key,
-            model_name="meta-llama/llama-4-scout-17b-16e-instruct",
-            temperature=0.1,
-            max_tokens=4000
-        )
-        return llm
-    except Exception as e:
-        st.error(f"Error setting up ChatGroq: {str(e)}")
-        return None
-
-# OCR Agent
-class OCRAgent:
-    def __init__(self, vision_client):
-        self.vision_client = vision_client
-    
-    def extract_text_from_pdf(self, pdf_file) -> str:
-        """Extract text from PDF using Google Vision OCR"""
-        try:
-            # Convert PDF to images and extract text
-            content = pdf_file.read()
-            image = vision.Image(content=content)
-            
-            response = self.vision_client.text_detection(image=image)
-            texts = response.text_annotations
-            
-            if texts:
-                return texts[0].description
-            return ""
-        except Exception as e:
-            st.error(f"OCR Error: {str(e)}")
-            return ""
-    
-    def process_documents(self, state: UnderwritingState) -> UnderwritingState:
-        """Process uploaded documents with OCR"""
-        extracted_texts = {}
-        
-        for doc in state["documents"]:
-            if doc["type"] == "pdf":
-                text = self.extract_text_from_pdf(doc["file"])
-                extracted_texts[doc["name"]] = {
-                    "text": text,
-                    "document_type": doc.get("document_type", "unknown")
-                }
-        
-        state["extracted_data"]["ocr_results"] = extracted_texts
-        state["current_step"] = "data_extraction"
-        return state
-
-# LLM-Powered Data Extraction Agent
-class LLMDataExtractionAgent:
-    def __init__(self):
-        self.extraction_prompts = {
-            "salary_slip": """
-            You are a financial data extraction expert analyzing a salary slip. Please provide a detailed analysis in the following format:
-
-            DOCUMENT ANALYSIS - SALARY SLIP
-            ================================
-            
-            EMPLOYEE INFORMATION:
-            - Employee Name: [Extract name]
-            - Company Name: [Extract company]
-            - Month/Period: [Extract period]
-            
-            SALARY BREAKDOWN:
-            - Gross Monthly Salary: ₹[amount] 
-            - Basic Salary: ₹[amount]
-            - House Rent Allowance: ₹[amount if found]
-            - Other Allowances: ₹[amount if found]
-            - Total Deductions: ₹[amount if found]
-            - Net Salary: ₹[amount if found]
-            
-            KEY OBSERVATIONS:
-            - [Any important notes about salary structure]
-            - [Consistency indicators]
-            - [Any anomalies or concerns]
-            
-            EXTRACTED NUMERICAL DATA:
-            GROSS_SALARY: [numeric value only]
-            BASIC_SALARY: [numeric value only]
-            NET_SALARY: [numeric value only]
-            
-            Salary Slip Text:
-            {text}
-            """,
-            
-            "bank_statement": """
-            You are a financial data extraction expert analyzing a bank statement. Please provide a detailed analysis:
-
-            DOCUMENT ANALYSIS - BANK STATEMENT
-            =================================
-            
-            ACCOUNT INFORMATION:
-            - Account Holder: [Extract name]
-            - Account Number: [Extract if visible]
-            - Statement Period: [Extract period]
-            
-            SALARY CREDIT ANALYSIS:
-            - Number of Salary Credits Found: [count]
-            - Salary Credit Amounts: [list all amounts found]
-            - Average Monthly Salary Credit: ₹[calculated average]
-            - Salary Credit Pattern: [regular/irregular]
-            
-            ACCOUNT HEALTH:
-            - Opening Balance: ₹[amount]
-            - Closing Balance: ₹[amount]
-            - Minimum Balance During Period: ₹[amount if found]
-            
-            KEY OBSERVATIONS:
-            - [Income stability assessment]
-            - [Any bounce charges or penalties]
-            - [Regular vs irregular income pattern]
-            
-            EXTRACTED NUMERICAL DATA:
-            SALARY_CREDITS: [comma-separated list of amounts]
-            CLOSING_BALANCE: [numeric value]
-            AVERAGE_MONTHLY_SALARY: [calculated value]
-            
-            Bank Statement Text:
-            {text}
-            """,
-            
-            "itr": """
-            You are a financial data extraction expert analyzing an Income Tax Return. Please provide a detailed analysis:
-
-            DOCUMENT ANALYSIS - INCOME TAX RETURN
-            ====================================
-            
-            TAXPAYER INFORMATION:
-            - Name: [Extract name]
-            - PAN: [Extract if visible]
-            - Assessment Year: [Extract year]
-            
-            INCOME BREAKDOWN:
-            - Salary Income: ₹[amount]
-            - Business/Professional Income: ₹[amount if found]
-            - Capital Gains: ₹[amount if found]
-            - Income from House Property: ₹[amount if found]
-            - Income from Other Sources: ₹[amount if found]
-            - Total Income: ₹[calculated total]
-            
-            TAX INFORMATION:
-            - Total Tax Liability: ₹[amount if found]
-            - Tax Paid/TDS: ₹[amount if found]
-            - Refund/Balance Tax: ₹[amount if found]
-            
-            KEY OBSERVATIONS:
-            - [Primary income source analysis]
-            - [Income diversity assessment]
-            - [Tax compliance indicators]
-            
-            EXTRACTED NUMERICAL DATA:
-            SALARY_INCOME: [numeric value]
-            BUSINESS_INCOME: [numeric value]
-            RENTAL_INCOME: [numeric value]
-            TOTAL_INCOME: [numeric value]
-            
-            ITR Text:
-            {text}
-            """,
-            
-            "form16": """
-            You are a financial data extraction expert analyzing Form 16. Please provide a detailed analysis:
-
-            DOCUMENT ANALYSIS - FORM 16
-            ===========================
-            
-            EMPLOYEE & EMPLOYER DETAILS:
-            - Employee Name: [Extract name]
-            - Employee PAN: [Extract if visible]
-            - Employer Name: [Extract company]
-            - Employer TAN: [Extract if visible]
-            - Financial Year: [Extract year]
-            
-            INCOME & TAX DETAILS:
-            - Gross Total Income: ₹[amount]
-            - Total Income (after deductions): ₹[amount]
-            - Tax Deducted at Source: ₹[amount]
-            - Income Tax: ₹[amount if separate]
-            - Education Cess: ₹[amount if found]
-            
-            DEDUCTIONS CLAIMED:
-            - Section 80C: ₹[amount if found]
-            - Section 80D: ₹[amount if found]
-            - Other Deductions: ₹[amount if found]
-            
-            KEY OBSERVATIONS:
-            - [Tax planning assessment]
-            - [Deduction utilization analysis]
-            - [Income consistency with other documents]
-            
-            EXTRACTED NUMERICAL DATA:
-            GROSS_INCOME: [numeric value]
-            TOTAL_INCOME: [numeric value]
-            TDS_AMOUNT: [numeric value]
-            
-            Form 16 Text:
-            {text}
-            """
-        }
-    
-    def extract_financial_data(self, text: str, doc_type: str, llm: ChatGroq) -> Dict[str, Any]:
-        """Extract financial data using LLM"""
-        try:
-            if doc_type in self.extraction_prompts:
-                prompt = self.extraction_prompts[doc_type].format(text=text)
-                
-                response = llm.invoke([HumanMessage(content=prompt)])
-                
-                # Parse structured response to extract numerical data
-                extracted_data = self._parse_llm_response(response.content, doc_type)
-                
-                # Store the full LLM analysis for display
-                extracted_data["llm_analysis"] = response.content
-                
-                return extracted_data
-            
-            return {}
-        except Exception as e:
-            st.error(f"LLM extraction error: {str(e)}")
-            return self._fallback_extraction(text, doc_type)
-    
-    def _parse_llm_response(self, response_text: str, doc_type: str) -> Dict[str, Any]:
-        """Parse structured LLM response to extract numerical data"""
-        extracted_data = {}
-        
-        # Look for the EXTRACTED NUMERICAL DATA section
-        lines = response_text.split('\n')
-        in_data_section = False
-        
-        for line in lines:
-            if "EXTRACTED NUMERICAL DATA:" in line:
-                in_data_section = True
-                continue
-            
-            if in_data_section and line.strip():
-                if ':' in line:
-                    key, value = line.split(':', 1)
-                    key = key.strip()
-                    value = value.strip()
-                    
-                    # Handle different data types
-                    if key == "SALARY_CREDITS":
-                        # Parse comma-separated list
-                        try:
-                            amounts = [float(x.strip()) for x in value.split(',') if x.strip().replace('.','').isdigit()]
-                            extracted_data["salary_credits"] = amounts
-                        except:
-                            pass
-                    else:
-                        # Try to extract numeric value
-                        try:
-                            # Remove currency symbols and commas
-                            clean_value = re.sub(r'[₹,\s]', '', value)
-                            if clean_value.replace('.', '').isdigit():
-                                extracted_data[key.lower().replace('_', '_')] = float(clean_value)
-                        except:
-                            extracted_data[key.lower().replace('_', '_')] = value
-        
-        return extracted_data
-    
-    def _fallback_extraction(self, text: str, doc_type: str) -> Dict[str, Any]:
-        """Fallback regex extraction if LLM fails"""
-        patterns = {
-            "salary_slip": {
-                "gross_salary": r"gross\s*salary[:\s]*₹?(\d+(?:,\d+)*)",
-                "basic_salary": r"basic\s*salary[:\s]*₹?(\d+(?:,\d+)*)",
-            },
-            "bank_statement": {
-                "salary_credits": r"salary|sal\s*cr.*?₹?(\d+(?:,\d+)*)",
-            },
-            "itr": {
-                "total_income": r"total\s*income[:\s]*₹?(\d+(?:,\d+)*)",
-            }
-        }
-        
-        extracted_data = {}
-        if doc_type in patterns:
-            for field, pattern in patterns[doc_type].items():
-                matches = re.findall(pattern, text, re.IGNORECASE)
-                if matches:
-                    if field == "salary_credits":
-                        extracted_data[field] = [float(m.replace(",", "")) for m in matches]
-                    else:
-                        try:
-                            extracted_data[field] = float(matches[0].replace(",", ""))
-                        except ValueError:
-                            extracted_data[field] = matches[0]
-        
-        return extracted_data
-    
-    def process_extraction(self, state: UnderwritingState) -> UnderwritingState:
-        """Extract structured data from OCR results using LLM"""
-        structured_data = {}
-        llm = state["chat_groq"]
-        
-        for doc_name, ocr_result in state["extracted_data"]["ocr_results"].items():
-            doc_type = ocr_result["document_type"]
-            extracted = self.extract_financial_data(ocr_result["text"], doc_type, llm)
-            structured_data[doc_name] = {
-                "type": doc_type,
-                "data": extracted
-            }
-        
-        state["extracted_data"]["structured_data"] = structured_data
-        state["current_step"] = "calculation"
-        return state
-
-# LLM-Powered Calculation Agent
-class LLMCalculationAgent:
-    def __init__(self):
-        self.calculation_prompt = """
-        You are a senior financial underwriter with 15+ years of experience. Analyze the following case and provide detailed calculations:
-
-        CASE DETAILS:
-        =============
-        Customer Age: {age} years
-        Insurance Type: {case_type}
-        
-        DOCUMENT ANALYSIS:
-        ==================
-        {document_data}
-
-        UNDERWRITING GUIDELINES:
-        ========================
-        
-        AGE-BASED MULTIPLIERS:
-        
-        For Term Life Insurance:
-        • Ages 18-30: 25x annual income
-        • Ages 31-35: 25x annual income  
-        • Ages 36-40: 20x annual income
-        • Ages 41-45: 15x annual income
-        • Ages 46-50: 12x annual income
-        • Ages 51-55: 10x annual income
-        • Ages 56+: 5x annual income
-        
-        For Non-Term Life Insurance:
-        • Ages 18-30: 35x annual income
-        • Ages 31-35: 30x annual income
-        • Ages 36-40: 25x annual income
-        • Ages 41-45: 20x annual income
-        • Ages 46-50: 15x annual income
-        • Ages 51-65: 10x annual income
-        • Ages 66+: 6x annual income
-
-        DOCUMENT-SPECIFIC CALCULATION RULES:
-        ====================================
-        
-        SALARY SLIP CALCULATIONS:
-        • Term Insurance: Annual salary × appropriate multiplier
-        • Non-Term Insurance: (Annual salary + 10% bonus) × appropriate multiplier
-        
-        BANK STATEMENT CALCULATIONS:
-        • Term Insurance: Average of last 3 months salary + 30% grossing up, then × 12 × multiplier
-        • Non-Term Insurance: Average of last 6 months salary × 12 × multiplier
-        
-        ITR CALCULATIONS:
-        • Term Insurance: Only earned income (salary + business) × multiplier
-        • Non-Term Insurance: Total income (including rental, interest) × multiplier
-        
-        FORM 16 CALCULATIONS:
-        • Use gross total income × appropriate multiplier
-
-        Please provide your analysis in the following format:
-
-        FINANCIAL VIABILITY CALCULATION
-        ==============================
-        
-        INCOME ASSESSMENT:
-        • Primary Income Source: [source and amount]
-        • Monthly Income: ₹[amount]
-        • Annual Income: ₹[amount]
-        • Income Adjustments: [any adjustments made]
-        • Final Annual Income: ₹[amount]
-        
-        MULTIPLIER APPLICATION:
-        • Customer Age: {age} years
-        • Insurance Type: {case_type}
-        • Applicable Multiplier: [X]x
-        • Justification: [why this multiplier applies]
-        
-        FINANCIAL VIABILITY CALCULATION:
-        • Formula: ₹[final annual income] × [multiplier]
-        • Financial Viability: ₹[final calculated amount]
-        
-        RISK ASSESSMENT:
-        • Income Stability: [High/Medium/Low]
-        • Documentation Quality: [Excellent/Good/Fair/Poor]
-        • Consistency Check: [Pass/Fail with explanation]
-        • Overall Risk Level: [Low/Medium/High]
-        
-        KEY OBSERVATIONS:
-        • [Important findings about the customer's financial profile]
-        • [Any red flags or positive indicators]
-        • [Recommendations for underwriting decision]
-        
-        NUMERICAL SUMMARY:
-        ANNUAL_INCOME: [numeric value]
-        MULTIPLIER: [numeric value]
-        FINANCIAL_VIABILITY: [numeric value]
-        RISK_SCORE: [1-10 scale]
-        """
-    
-    def process_calculations(self, state: UnderwritingState) -> UnderwritingState:
-        """Perform calculations using LLM"""
-        llm = state["chat_groq"]
-        calculations = {}
-        
-        age = state["age"]
-        case_type = "Term Life Insurance" if state["is_term_case"] else "Non-Term Life Insurance"
-        
-        for doc_name, doc_info in state["extracted_data"]["structured_data"].items():
-            try:
-                # Format document data for LLM
-                doc_data_str = f"Document Type: {doc_info['type']}\n"
-                doc_data_str += f"Document Name: {doc_name}\n"
-                doc_data_str += "Extracted Data:\n"
-                
-                for key, value in doc_info['data'].items():
-                    if key != "llm_analysis":  # Skip the analysis text
-                        doc_data_str += f"  {key}: {value}\n"
-                
-                prompt = self.calculation_prompt.format(
-                    age=age,
-                    case_type=case_type,
-                    document_data=doc_data_str
-                )
-                
-                response = llm.invoke([HumanMessage(content=prompt)])
-                
-                # Parse numerical data from response
-                calc_result = self._parse_calculation_response(response.content)
-                
-                # Store full LLM analysis
-                calc_result["llm_calculation_analysis"] = response.content
-                
-                calculations[doc_name] = calc_result
-                    
-            except Exception as e:
-                st.error(f"Calculation error for {doc_name}: {str(e)}")
-                calculations[doc_name] = {"error": str(e)}
-        
-        state["calculations"] = calculations
-        state["current_step"] = "recommendation"
-        return state
-    
-    def _parse_calculation_response(self, response_text: str) -> Dict:
-        """Parse calculation response to extract numerical data"""
-        result = {}
-        
-        # Look for NUMERICAL SUMMARY section
-        lines = response_text.split('\n')
-        in_summary_section = False
-        
-        for line in lines:
-            if "NUMERICAL SUMMARY:" in line:
-                in_summary_section = True
-                continue
-            
-            if in_summary_section and line.strip() and ':' in line:
-                key, value = line.split(':', 1)
-                key = key.strip()
-                value = value.strip()
-                
-                try:
-                    # Clean and convert numeric values
-                    clean_value = re.sub(r'[₹,\s]', '', value)
-                    if clean_value.replace('.', '').isdigit():
-                        result[key.lower()] = float(clean_value)
-                    else:
-                        result[key.lower()] = value
-                except:
-                    result[key.lower()] = value
-        
-        # Also try to extract key amounts from the text
-        financial_viability_match = re.search(r'Financial Viability:\s*₹([0-9,]+)', response_text)
-        if financial_viability_match:
-            amount = financial_viability_match.group(1).replace(',', '')
-            result['financial_viability'] = float(amount)
-        
-        return result
-    
-    def _fallback_calculation(self, doc_info: Dict, age: int, is_term: bool) -> Dict:
-        """Simple fallback calculation"""
-        data = doc_info.get("data", {})
-        
-        # Simple multiplier logic
-        if age <= 30:
-            multiplier = 25 if is_term else 35
-        elif age <= 40:
-            multiplier = 20 if is_term else 25
-        else:
-            multiplier = 15 if is_term else 20
-        
-        # Basic calculation
-        income = 0
-        if "gross_salary" in data:
-            income = data["gross_salary"] * 12
-        elif "total_income" in data:
-            income = data["total_income"]
-        
-        return {
-            "financial_viability": income * multiplier,
-            "calculation_method": "Fallback calculation",
-            "annual_income": income,
-            "multiplier_used": multiplier
-        }
-
-# LLM-Powered Recommendation Agent
-class LLMRecommendationAgent:
-    def __init__(self):
-        self.recommendation_prompt = """
-        You are the Chief Underwriting Officer of a leading life insurance company with 20+ years of experience. 
-        Review the following underwriting case and provide your executive recommendation:
-
-        CASE SUMMARY:
-        =============
-        Customer Age: {age} years
-        Insurance Type: {case_type}
-        
-        FINANCIAL ANALYSIS RESULTS:
-        ===========================
-        {calculations}
-
-        UNDERWRITING DECISION FRAMEWORK:
-        ================================
-        
-        APPROVAL THRESHOLDS:
-        • Ages 18-40: Up to ₹5 Crores (standard approval)
-        • Ages 41-50: Up to ₹3 Crores (standard approval)  
-        • Ages 51-60: Up to ₹2 Crores (standard approval)
-        • Ages 60+: Up to ₹1 Crore (standard approval)
-        
-        RISK CATEGORIES:
-        • Low Risk: Stable employment, consistent income, good documentation
-        • Medium Risk: Some inconsistencies, requires additional verification
-        • High Risk: Significant concerns, senior management approval required
-        
-        DOCUMENTATION REQUIREMENTS:
-        • Excellent: All documents consistent, no additional requirements
-        • Good: Minor clarifications needed
-        • Fair: Additional documents required
-        • Poor: Significant documentation gaps, high risk
-
-        Please provide your comprehensive recommendation in the following format:
-
-        EXECUTIVE UNDERWRITING RECOMMENDATION
-        ====================================
-        
-        CASE OVERVIEW:
-        • Customer Profile: [Brief customer summary]
-        • Application Type: {case_type}
-        • Total Documents Reviewed: [number]
-        • Primary Income Source: [source]
-        
-        FINANCIAL ASSESSMENT:
-        • Highest Calculated Amount: ₹[amount]
-        • Recommended Approval Amount: ₹[amount]
-        • Basis for Recommendation: [Best document/calculation used]
-        • Income Verification Status: [Verified/Pending/Concerns]
-        
-        RISK EVALUATION:
-        • Overall Risk Rating: [Low/Medium/High]
-        • Risk Factors Identified:
-          - [List specific risk factors]
-        • Mitigating Factors:
-          - [List positive factors]
-        • Confidence Level: [1-10 scale]
-        
-        COMPLIANCE & DOCUMENTATION:
-        • Documentation Completeness: [Excellent/Good/Fair/Poor]
-        • Additional Documents Required:
-          - [List any additional documents needed]
-        • Compliance Concerns: [Any regulatory concerns]
-        
-        UNDERWRITING CONDITIONS:
-        • Medical Requirements: [Standard/Enhanced/Specialized]
-        • Financial Conditions: [Any specific conditions]
-        • Policy Restrictions: [Any restrictions to be applied]
-        • Review Period: [When to review the case]
-        
-        FINAL RECOMMENDATION:
-        • Decision: [APPROVE/DECLINE/REFER TO SENIOR UNDERWRITER]
-        • Approved Amount: ₹[final amount]
-        • Validity Period: [How long this decision is valid]
-        • Next Steps: [What needs to happen next]
-        
-        EXECUTIVE SUMMARY:
-        [2-3 sentence summary of the key recommendation and rationale]
-        
-        NUMERICAL SUMMARY:
-        APPROVED_AMOUNT: [numeric value]
-        RISK_SCORE: [1-10 numeric value]
-        CONFIDENCE_SCORE: [1-10 numeric value]
-        DOCUMENTATION_SCORE: [1-10 numeric value]
-        """
-    
-    def generate_recommendations(self, state: UnderwritingState) -> UnderwritingState:
-        """Generate recommendations using LLM"""
-        llm = state["chat_groq"]
-        
-        try:
-            # Format calculations for LLM
-            calc_summary = ""
-            for doc_name, calc in state["calculations"].items():
-                calc_summary += f"\nDocument: {doc_name}\n"
-                calc_summary += f"Financial Viability: ₹{calc.get('financial_viability', 0):,.0f}\n"
-                calc_summary += f"Risk Score: {calc.get('risk_score', 'N/A')}\n"
-                if 'llm_calculation_analysis' in calc:
-                    # Include key points from calculation analysis
-                    analysis_lines = calc['llm_calculation_analysis'].split('\n')
-                    for line in analysis_lines:
-                        if any(keyword in line.upper() for keyword in ['RISK', 'INCOME', 'VIABILITY', 'OBSERVATION']):
-                            calc_summary += f"  {line.strip()}\n"
-                calc_summary += "---\n"
-            
-            case_type = "Term Life Insurance" if state["is_term_case"] else "Non-Term Life Insurance"
-            
-            prompt = self.recommendation_prompt.format(
-                age=state["age"],
-                case_type=case_type,
-                calculations=calc_summary
-            )
-            
-            response = llm.invoke([HumanMessage(content=prompt)])
-            
-            # Parse numerical data from response
-            recommendations = self._parse_recommendation_response(response.content)
-            
-            # Store full LLM analysis
-            recommendations["llm_recommendation_analysis"] = response.content
-            
-        except Exception as e:
-            st.error(f"Recommendation generation error: {str(e)}")
-            recommendations = self._fallback_recommendations(state)
-        
-        state["recommendations"] = recommendations
-        state["current_step"] = "complete"
-        return state
-    
-    def _parse_recommendation_response(self, response_text: str) -> Dict:
-        """Parse recommendation response to extract key data"""
-        result = {}
-        
-        # Extract decision
-        if "APPROVE" in response_text.upper():
-            result["decision"] = "APPROVED"
-        elif "DECLINE" in response_text.upper():
-            result["decision"] = "DECLINED"
-        elif "REFER" in response_text.upper():
-            result["decision"] = "REFER TO SENIOR"
-        else:
-            result["decision"] = "PENDING REVIEW"
-        
-        # Extract numerical summary
-        lines = response_text.split('\n')
-        in_summary_section = False
-        
-        for line in lines:
-            if "NUMERICAL SUMMARY:" in line:
-                in_summary_section = True
-                continue
-            
-            if in_summary_section and line.strip() and ':' in line:
-                key, value = line.split(':', 1)
-                key = key.strip()
-                value = value.strip()
-                
-                try:
-                    clean_value = re.sub(r'[₹,\s]', '', value)
-                    if clean_value.replace('.', '').isdigit():
-                        result[key.lower()] = float(clean_value)
-                    else:
-                        result[key.lower()] = value
-                except:
-                    result[key.lower()] = value
-        
-        # Extract approved amount from text
-        approved_match = re.search(r'Approved Amount:\s*₹([0-9,]+)', response_text)
-        if approved_match:
-            amount = approved_match.group(1).replace(',', '')
-            result['approved_amount'] = float(amount)
-        
-        # Extract risk assessment
-        if "Low Risk" in response_text or "LOW RISK" in response_text:
-            result["risk_assessment"] = "Low"
-        elif "High Risk" in response_text or "HIGH RISK" in response_text:
-            result["risk_assessment"] = "High"
-        else:
-            result["risk_assessment"] = "Medium"
-        
-        return result
-    
-    def _fallback_recommendations(self, state: UnderwritingState) -> Dict:
-        """Simple fallback recommendations"""
-        max_viability = 0
-        best_doc = ""
-        
-        for doc_name, calc in state["calculations"].items():
-            viability = calc.get("financial_viability", 0)
-            if viability > max_viability:
-                max_viability = viability
-                best_doc = doc_name
-        
-        return {
-            "approved_amount": max_viability,
-            "risk_assessment": "Medium",
-            "confidence_score": 7,
-            "recommendations": ["Standard processing recommended"],
-            "summary": f"Based on {best_doc}, approved amount: ₹{max_viability:,.0f}"
-        }
-
-# Main Streamlit Application
-def main():
-    st.set_page_config(
-        page_title="AI Financial Underwriter with ChatGroq",
-        page_icon="🤖",
-        layout="wide"
-    )
-    
-    st.title("🤖 AI Financial Underwriter with ChatGroq")
-    st.markdown("Intelligent underwriting powered by ChatGroq LLM and document processing")
-    
-    # Sidebar for API keys and settings
-    with st.sidebar:
-        st.header("🔑 API Configuration")
-        
-        groq_api_key = st.text_input(
-            "ChatGroq API Key",
-            type="password",
-            help="Enter your ChatGroq API key"
-        )
-        st.session_state['groq_api_key'] = groq_api_key
-        
-        google_vision_api_key = st.text_input(
-            "Google Vision API Key",
-            type="password",
-            help="Enter your Google Vision API key for OCR processing"
-        )
-        st.session_state['google_vision_api_key'] = google_vision_api_key
-        
-        st.header("📋 Case Details")
-        age = st.number_input("Customer Age", min_value=18, max_value=80, value=30)
-        is_term_case = st.radio("Case Type", ["Term", "Non-Term"]) == "Term"
-        
-        st.header("🤖 LLM Settings")
-        model_name = st.selectbox(
-            "ChatGroq Model",
-            ["meta-llama/llama-4-scout-17b-16e-instruct"],
-            help="Select the ChatGroq model to use"
-        )
-        
-        st.header("📄 Document Types")
-        doc_type_mapping = {
-            "Salary Slip": "salary_slip",
-            "Bank Statement": "bank_statement", 
-            "ITR": "itr",
-            "Form 16": "form16"
-        }
-    
-    # Initialize session state
-    if 'underwriting_state' not in st.session_state:
-        st.session_state.underwriting_state = UnderwritingState(
-            documents=[],
-            extracted_data={},
-            calculations={},
-            recommendations={},
-            errors=[],
-            current_step="document_upload",
-            age=30,
-            is_term_case=True,
-            chat_groq=None
-        )
-    
-    # Update state with user inputs
-    st.session_state.underwriting_state["age"] = age
-    st.session_state.underwriting_state["is_term_case"] = is_term_case
-    
-    # Document upload section
-    st.header("📤 Document Upload")
-    
-    uploaded_files = st.file_uploader(
-        "Upload Financial Documents",
-        type=['pdf', 'jpg', 'jpeg', 'png'],
-        accept_multiple_files=True,
-        help="Upload salary slips, bank statements, ITR, Form 16, etc."
-    )
-    
-    if uploaded_files:
-        documents = []
-        for file in uploaded_files:
-            doc_type = st.selectbox(
-                f"Document type for {file.name}",
-                options=list(doc_type_mapping.keys()),
-                key=f"type_{file.name}"
-            )
-            
-            documents.append({
-                "name": file.name,
-                "file": file,
-                "type": "pdf" if file.name.endswith('.pdf') else "image",
-                "document_type": doc_type_mapping[doc_type]
+        for page_num in range(len(doc)):
+            page = doc.load_page(page_num)
+            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+            img_data = pix.tobytes("png")
+            images.append({
+                "data": img_data,
+                "page": page_num + 1
             })
         
-        st.session_state.underwriting_state["documents"] = documents
-    
-    # Process button
-    if st.button("🚀 Start AI Underwriting Process", type="primary"):
-        if not groq_api_key:
-            st.error("Please enter ChatGroq API key in the sidebar")
-            return
-        
-        if not google_vision_api_key:
-            st.error("Please enter Google Vision API key in the sidebar")
-            return
-        
-        if not uploaded_files:
-            st.error("Please upload at least one document")
-            return
-        
-        # Setup clients
-        vision_client = setup_vision_client()
-        chat_groq = setup_chatgroq()
-        
-        if not vision_client or not chat_groq:
-            return
-        
-        # Add ChatGroq to state
-        st.session_state.underwriting_state["chat_groq"] = chat_groq
-        
-        # Initialize agents
-        ocr_agent = OCRAgent(vision_client)
-        extraction_agent = LLMDataExtractionAgent()
-        calculation_agent = LLMCalculationAgent()
-        recommendation_agent = LLMRecommendationAgent()
-        
-        # Create LangGraph workflow
-        workflow = StateGraph(UnderwritingState)
-        
-        # Add nodes
-        workflow.add_node("ocr", ocr_agent.process_documents)
-        workflow.add_node("extraction", extraction_agent.process_extraction)
-        workflow.add_node("calculation", calculation_agent.process_calculations)
-        workflow.add_node("recommendation", recommendation_agent.generate_recommendations)
-        
-        # Add edges
-        workflow.add_edge("ocr", "extraction")
-        workflow.add_edge("extraction", "calculation")
-        workflow.add_edge("calculation", "recommendation")
-        workflow.add_edge("recommendation", END)
-        
-        # Set entry point
-        workflow.set_entry_point("ocr")
-        
-        # Compile and run
-        app = workflow.compile()
-        
-        # Progress tracking
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        try:
-            # Run the workflow
-            status_text.text("🔍 Extracting text from documents...")
-            progress_bar.progress(20)
-            
-            status_text.text("🤖 AI analyzing document content...")
-            progress_bar.progress(40)
-            
-            status_text.text("🧮 AI performing financial calculations...")
-            progress_bar.progress(70)
-            
-            status_text.text("📊 Generating AI recommendations...")
-            progress_bar.progress(90)
-            
-            result = app.invoke(st.session_state.underwriting_state)
-            
-            progress_bar.progress(100)
-            status_text.text("✅ AI underwriting complete!")
-            
-            # Display results
-            st.success("🎉 AI Underwriting process completed successfully!")
-            
-            # Results section
-            st.header("📊 AI Underwriting Results")
-            
-            # Main metrics
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                approved_amount = result["recommendations"].get("approved_amount", 0)
-                st.metric("💰 Approved Amount", f"₹{approved_amount:,.0f}")
-            
-            with col2:
-                risk_assessment = result["recommendations"].get("risk_assessment", "Unknown")
-                st.metric("⚠️ Risk Assessment", risk_assessment)
-            
-            with col3:
-                confidence_score = result["recommendations"].get("confidence_score", 0)
-                st.metric("🎯 Confidence Score", f"{confidence_score}/10")
-            
-            # Detailed recommendations
-            st.subheader("🤖 AI Recommendations")
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.write("**Key Recommendations:**")
-                for rec in result["recommendations"].get("recommendations", []):
-                    st.write(f"• {rec}")
-                
-                if "required_documents" in result["recommendations"]:
-                    st.write("**Additional Documents Needed:**")
-                    for doc in result["recommendations"]["required_documents"]:
-                        st.write(f"• {doc}")
-            
-            with col2:
-                if "summary" in result["recommendations"]:
-                    st.write("**Executive Summary:**")
-                    st.info(result["recommendations"]["summary"])
-                
-                if "red_flags" in result["recommendations"] and result["recommendations"]["red_flags"]:
-                    st.write("**⚠️ Red Flags:**")
-                    for flag in result["recommendations"]["red_flags"]:
-                        st.warning(f"• {flag}")
-            
-            # Detailed calculations
-            if result["calculations"]:
-                st.subheader("🧮 AI Financial Analysis")
-                for doc_name, calc in result["calculations"].items():
-                    with st.expander(f"📄 Analysis: {doc_name}"):
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            if "financial_viability" in calc:
-                                st.metric("Financial Viability", f"₹{calc['financial_viability']:,.0f}")
-                            if "annual_income" in calc:
-                                st.metric("Annual Income", f"₹{calc['annual_income']:,.0f}")
-                            if "multiplier_used" in calc:
-                                st.metric("Multiplier Used", f"{calc['multiplier_used']}x")
-                        
-                        with col2:
-                            if "calculation_method" in calc:
-                                st.write("**Method:**", calc["calculation_method"])
-                            if "risk_factors" in calc:
-                                st.write("**Risk Factors:**")
-                                for factor in calc["risk_factors"]:
-                                    st.write(f"• {factor}")
-            
-            # Raw data for debugging
-            with st.expander("🔍 Raw Analysis Data (Debug)"):
-                st.json(result)
-                
-        except Exception as e:
-            st.error(f"❌ Error during AI processing: {str(e)}")
-            progress_bar.progress(0)
-            status_text.text("❌ Processing failed")
+        doc.close()
+        return images
+    except Exception as e:
+        st.error(f"Error converting PDF to images: {str(e)}")
+        return []
 
-if __name__ == "__main__":
-    main()
+def extract_text_with_vision(pdf_path):
+    vision_client = setup_vision_client()
+    if not vision_client:
+        return []
+    
+    try:
+        images = pdf_to_images(pdf_path)
+        documents = []
+        
+        for img_info in images:
+            image = vision.Image(content=img_info["data"])
+            
+            response = vision_client.text_detection(image=image)
+            
+            if response.error.message:
+                st.error(f"Vision API error: {response.error.message}")
+                continue
+            
+            texts = response.text_annotations
+            if texts:
+                extracted_text = texts[0].description
+                
+                doc = Document(
+                    page_content=extracted_text,
+                    metadata={
+                        "source": pdf_path,
+                        "page": img_info["page"],
+                        "type": "scanned_text",
+                        "extraction_method": "google_vision"
+                    }
+                )
+                documents.append(doc)
+        
+        return documents
+        
+    except Exception as e:
+        st.error(f"Error with Google Vision API: {str(e)}")
+        return []
+
+def is_scanned_pdf(pdf_path):
+    """Enhanced detection for scanned vs digital PDFs"""
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            total_text = ""
+            total_chars = 0
+            pages_checked = min(3, len(pdf.pages))
+            
+            for page in pdf.pages[:pages_checked]:
+                text = page.extract_text() or ""
+                total_text += text
+                total_chars += len(text.strip())
+            
+            
+            avg_chars_per_page = total_chars / pages_checked if pages_checked > 0 else 0
+            return avg_chars_per_page < 50
+    except:
+        return True
+
+def extract_tables_from_pdf(file_path):
+    document_content = []
+    
+    with pdfplumber.open(file_path) as pdf:
+        for page_num, page in enumerate(pdf.pages):
+            text = page.extract_text() or ""
+            if text.strip():
+                document_content.append({
+                    "content": text,
+                    "page": page_num + 1,
+                    "type": "text"
+                })
+            
+            tables = page.extract_tables()
+            for table_num, table in enumerate(tables):
+                if table:
+                    df = pd.DataFrame(table)
+                    
+                    if not df.empty:
+                        headers = []
+                        if len(df.columns) > 0:
+                            if not pd.isna(df.iloc[0]).all() and not all(x is None for x in df.iloc[0]):
+                                headers = [str(h).strip() if h is not None else f"Column_{i}" 
+                                          for i, h in enumerate(df.iloc[0])]
+                                df = df.iloc[1:]
+                            else:
+                                headers = [f"Column_{i}" for i in range(len(df.columns))]
+                        
+                        unique_headers = []
+                        header_counts = {}
+                        
+                        for h in headers:
+                            if h in header_counts:
+                                header_counts[h] += 1
+                                unique_headers.append(f"{h}_{header_counts[h]}")
+                            else:
+                                header_counts[h] = 0
+                                unique_headers.append(h)
+                        
+                        df.columns = unique_headers
+                    
+                    document_content.append({
+                        "page": page_num + 1,
+                        "type": "table",
+                        "table_number": table_num + 1,
+                        "dataframe": df
+                    })
+    
+    return document_content
+
+def format_table_for_llm(df: pd.DataFrame, table_info: dict) -> str:
+    if df.empty:
+        return f"Empty table on page {table_info['page']}"
+    
+    table_text = f"\n--- TABLE {table_info['table_number']} (Page {table_info['page']}) ---\n"
+    
+    table_text += df.to_string(index=False, na_rep='') + "\n"
+    
+    table_text += "\nKey Financial Data from this table:\n"
+    for col in df.columns:
+        non_null_values = df[col].dropna()
+        if not non_null_values.empty:
+            numeric_values = []
+            for val in non_null_values:
+                if isinstance(val, (int, float)) or (isinstance(val, str) and any(char.isdigit() for char in str(val))):
+                    numeric_values.append(str(val))
+            
+            if numeric_values:
+                table_text += f"- {col}: {', '.join(numeric_values[:5])}\n"
+    
+    table_text += "--- END TABLE ---\n"
+    return table_text
+
+def load_customer_pdf_with_vision(file_path):
+    """Enhanced function to handle mixed PDF types"""
+    document_content = extract_tables_from_pdf(file_path)
+    
+    page_extraction_quality = {}
+    total_meaningful_content = False
+    
+    for content in document_content:
+        page_num = content["page"]
+        if content["type"] == "text":
+            text_length = len(content["content"].strip())
+            page_extraction_quality[page_num] = text_length
+            if text_length > 50:
+                total_meaningful_content = True
+        elif content["type"] == "table" and not content["dataframe"].empty:
+            page_extraction_quality[page_num] = page_extraction_quality.get(page_num, 0) + 100
+            total_meaningful_content = True
+    
+    pages_needing_ocr = []
+    for page_num, quality in page_extraction_quality.items():
+        if quality < 30:
+            pages_needing_ocr.append(page_num)
+    
+    if not total_meaningful_content:
+        st.info(f"📸 Document appears to be entirely scanned. Using Google Vision API...")
+        vision_documents = extract_text_with_vision(file_path)
+        if vision_documents:
+            return vision_documents
+        else:
+            st.warning("Vision API failed, using available content from pdfplumber...")
+    
+    elif pages_needing_ocr:
+        st.info(f"📸 Using OCR for pages with poor text extraction: {pages_needing_ocr}")
+        vision_documents = extract_text_with_vision_selective(file_path, pages_needing_ocr)
+        
+        documents = []
+        ocr_pages = {doc.metadata["page"]: doc for doc in vision_documents}
+        
+        for content in document_content:
+            page_num = content["page"]
+            
+            if page_num in ocr_pages and page_num in pages_needing_ocr:
+                documents.append(ocr_pages[page_num])
+            else:
+                if content["type"] == "text":
+                    doc = Document(
+                        page_content=content["content"],
+                        metadata={
+                            "source": file_path,
+                            "page": content["page"],
+                            "type": "text"
+                        }
+                    )
+                    documents.append(doc)
+                elif content["type"] == "table":
+                    table_text = format_table_for_llm(content["dataframe"], content)
+                    doc = Document(
+                        page_content=table_text,
+                        metadata={
+                            "source": file_path,
+                            "page": content["page"],
+                            "type": "table",
+                            "table_number": content["table_number"]
+                        }
+                    )
+                    documents.append(doc)
+        
+        return documents
+    
+    documents = []
+    for content in document_content:
+        if content["type"] == "text":
+            doc = Document(
+                page_content=content["content"],
+                metadata={
+                    "source": file_path,
+                    "page": content["page"],
+                    "type": "text"
+                }
+            )
+            documents.append(doc)
+            
+        elif content["type"] == "table":
+            table_text = format_table_for_llm(content["dataframe"], content)
+            doc = Document(
+                page_content=table_text,
+                metadata={
+                    "source": file_path,
+                    "page": content["page"],
+                    "type": "table",
+                    "table_number": content["table_number"]
+                }
+            )
+            documents.append(doc)
+    
+    return documents
+
+def extract_text_with_vision_selective(pdf_path, target_pages=None):
+    """Extract text using Vision API for specific pages only"""
+    vision_client = setup_vision_client()
+    if not vision_client:
+        return []
+    
+    try:
+        images = pdf_to_images(pdf_path)
+        documents = []
+        
+        for img_info in images:
+            if target_pages and img_info["page"] not in target_pages:
+                continue
+                
+            image = vision.Image(content=img_info["data"])
+            
+            response = vision_client.text_detection(image=image)
+            
+            if response.error.message:
+                st.error(f"Vision API error on page {img_info['page']}: {response.error.message}")
+                continue
+            
+            texts = response.text_annotations
+            if texts:
+                extracted_text = texts[0].description
+                
+                doc = Document(
+                    page_content=extracted_text,
+                    metadata={
+                        "source": pdf_path,
+                        "page": img_info["page"],
+                        "type": "scanned_text",
+                        "extraction_method": "google_vision"
+                    }
+                )
+                documents.append(doc)
+        
+        return documents
+        
+    except Exception as e:
+        st.error(f"Error with Google Vision API: {str(e)}")
+        return []
+
+def load_pdf_with_tables(file_path):
+    document_content = extract_tables_from_pdf(file_path)
+    documents = []
+    
+    for content in document_content:
+        if content["type"] == "text":
+            doc = Document(
+                page_content=content["content"],
+                metadata={
+                    "source": file_path,
+                    "page": content["page"],
+                    "type": "text"
+                }
+            )
+            documents.append(doc)
+            
+        elif content["type"] == "table":
+            table_text = format_table_for_llm(content["dataframe"], content)
+            doc = Document(
+                page_content=table_text,
+                metadata={
+                    "source": file_path,
+                    "page": content["page"],
+                    "type": "table",
+                    "table_number": content["table_number"]
+                }
+            )
+            documents.append(doc)
+    
+    return documents
+
+def split_text(documents):
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1500,
+        chunk_overlap=200,
+        add_start_index=True
+    )
+    
+    chunked_docs = []
+    for doc in documents:
+        if doc.metadata.get("type") == "table":
+            chunked_docs.append(doc)
+        else:
+            chunks = text_splitter.split_documents([doc])
+            chunked_docs.extend(chunks)
+    
+    return chunked_docs
+
+def extract_financial_info(documents):
+    financial_keywords = [
+        "salary", "income", "annual income", "monthly income", 
+        "basic pay", "gross salary", "CTC",
+        "ITR", "income tax return", "form 16", "tax",
+        "mutual fund", "SIP", "investment", "portfolio",
+        "credit card", "investment amount", "units", "NAV",
+        "bank statement", "account balance", "savings",
+        "loan", "EMI", "debt", "liability", "credit",
+        "bonus", "incentive", "allowance", "deduction",
+        "amount", "balance", "value", "total", "sum"
+    ]
+    
+    relevant_chunks = []
+    for doc in documents:
+        content_lower = doc.page_content.lower()
+        
+        if doc.metadata.get("type") == "table":
+            relevant_chunks.append(doc)
+        elif any(keyword in content_lower for keyword in financial_keywords):
+            relevant_chunks.append(doc)
+    
+    return relevant_chunks
+
+comprehensive_template = """
+You are an expert Financial Underwriting AI Assistant specialized in insurance policy underwriting. Your primary task is to analyze customer financial documents and calculate financial viability using the EXACT methods specified in the underwriting guidelines for each document type.
+Also, you need act as an expert Salary Slip reader, Mutual Fund reader, Bank Statement reader, ITR reader, Form 16 reader and Credit Card reader.
+CRITICAL: If in any customer financial documents, the type of document is already written in words, the same should be identified directly and shown. E.g., a credit card document header reads, "Credit Card"
+IMPORTANT: PLEASE DO CORRECT CALCULATIONS
+IMPORTANT: When bank statements are identified, please consider the salary credited for the last 3 months and do the calculations as stated for Financial Viability
+IMPORTANT: For bank statements, where salary cannot be found, go ahead with the closing balance calculation for Financial Viability 
+CRITICAL: All NUMBERS TO BE CONSIDERED IN INDIAN RUPEES AND SYSTEM, IF ANY OTHER CURRENCY IS DETECTED< PLEASE CONVERT THE SAME INTO INR and THEN CALCULAE THE FINAL FINANCIAL VIABILITY
+CRITICAL: When extracting information from Mutual Fund Statements, try and find out the Monthly SIP value (monetary value) for all the funds. For, Salary slips, consider the gross salary from the latest month, year
+
+**CRITICAL WORKFLOW - FOLLOW THESE STEPS IN ORDER:**
+
+**STEP 1: DOCUMENT TYPE IDENTIFICATION**
+Analyze the customer documents and identify the PRIMARY document type from these categories:
+- Salary Slips
+- Bank Statement (Salaried)
+- Bank Statement (Closing Balance)
+- ITR & COI (Income Tax Return & Certificate of Income)
+- Form 16
+- Mutual Fund Statement - SIP
+- Credit Card Statements
+- Car Ownership Documents
+- Fixed Deposits
+- Home Loan
+- House/Shop Ownership
+
+**SPECIAL BANK STATEMENT DETECTION RULES:**
+For bank statements, you MUST first determine which calculation method to use:
+
+1. **SALARY DETECTION PHASE:** Carefully scan the bank statement for salary-related transactions:
+   - Look for regular monthly credits with terms like: "SALARY", "SAL", "PAY", "PAYROLL", "WAGES", "MONTHLY CREDIT"
+   - Check for consistent monthly amounts from employer names
+   - Look for salary patterns in credit transactions over the last 3-6 months
+   
+2. **AUTOMATIC METHOD SELECTION:**
+   - IF salary credits are found: Use "Bank Statement (Salaried)" method
+   - IF NO salary credits found: Use "Bank Statement (Closing Balance)" method
+
+**Output Format:**
+```
+PRIMARY DOCUMENT TYPE IDENTIFIED: [Document Type]
+BANK STATEMENT SUB-TYPE: [Salaried/Closing Balance] (only for bank statements)
+SALARY DETECTION RESULT: [Found/Not Found - with evidence]
+CONFIDENCE LEVEL: High/Medium/Low
+SUPPORTING EVIDENCE: [Key identifiers found in the document]
+```
+
+**STEP 2: GUIDELINE LOOKUP AND FORMULA EXTRACTION**
+Based on the identified document type, customer age ({customer_age}), and policy type ({policy_type}), extract the EXACT calculation method from the guidelines.
+
+**From the Guidelines Document, use these SPECIFIC formulas:**
+
+**For Salary Slips:**
+- Term Cases: Annual Salary = Gross Monthly Salary (latest month) × 12; Financial Viability = Annual Salary × Income Multiplier
+- Non-Term Cases: Annual Salary = Gross Monthly Salary (latest month) × 12; Annual Bonus = Annual Salary × 0.10; Total = Annual Salary + Annual Bonus; Financial Viability = Total × Income Multiplier
+
+IMPORTANT: For Salary Slips, always consider "Gross Salary".
+
+**For Bank Statement (Salaried) - ONLY when salary credits are detected:**
+- Term Cases: Average Monthly Salary (last 3 months) × 12; Add 30% to get Gross Annual Salary; Financial Viability = Gross Annual Salary × Age-based Multiplier
+- Non-Term Cases: Average Monthly Salary (last 6 months) × 12; Financial Viability = Annual Income × Age-based Multiplier
+
+**For Bank Statement (Closing Balance) - ONLY when NO salary credits found:**
+- Term Cases: Average Closing Balance (last 3 months) × 12; Financial Viability = Annual Average Income × Age-based Multiplier
+- Non-Term Cases: Same as Term Cases
+
+**For ITR & COI:**
+- Term Cases: Only Earned Income (exclude unearned); Financial Viability = Total Earned Income × Age-based Multiplier
+- Non-Term Cases: Include ALL income types (earned + unearned); Financial Viability = Total Income × Age-based Multiplier
+
+**For Form 16:**
+- Term Cases: Gross Income from Part A; Financial Viability = Annual Income × Age-based Multiplier
+
+**For Mutual Fund Statement - SIP:**
+- Term Cases: Monthly SIP × 12 = Annual Income; Financial Viability = Annual Income × Age-based Multiplier
+
+**For Credit Card Statements:**
+- Term Cases: Monthly CC Statement Value × 6 = Annual Income; Financial Viability = Annual Income × Age-based Multiplier
+
+**For Car Ownership:**
+- Term Cases: Car IDV Value × 2 = Annual Income; Financial Viability = Annual Income × Age-based Multiplier
+
+**For Fixed Deposits:**
+- Term Cases: Investment Value × 0.05 = Estimated Annual Income; Financial Viability = Annual Income × Age-based Multiplier
+
+**For Home Loan:**
+- Term Cases: Monthly EMI × 24 = Annual Income; Financial Viability = Annual Income × Age-based Multiplier
+
+**For House/Shop Ownership:**
+- Term Cases: Financial Viability = Property Value × 0.50
+
+**STEP 3: AGE-BASED MULTIPLIER SELECTION**
+Use the correct age-based multiplier from guidelines:
+
+**Term Cases Multipliers:**
+- Age 18-30: 25x
+- Age 31-35: 25x  
+- Age 36-40: 20x
+- Age 41-45: 15x
+- Age 46-50: 12x
+- Age 51-55: 10x
+- Age ≥56: 5x
+
+**Non-Term Cases Multipliers:**
+- Age 18-30: 35x
+- Age 31-35: 30x
+- Age 36-40: 25x
+- Age 41-45: 20x
+- Age 46-50: 15x
+- Age 51-65: 10x
+- Age >65: 6x
+
+**STEP 4: PRECISE CALCULATION**
+Apply the exact formula for the identified document type using actual values from customer documents.
+
+**For Bank Statements - Show Detection Process:**
+```
+BANK STATEMENT ANALYSIS:
+Salary Detection Scan:
+- Searched for: [List salary-related keywords found/not found]
+- Regular Monthly Credits: [Found/Not Found]
+- Salary Patterns: [Describe any patterns found]
+- Decision: [Salaried Method / Closing Balance Method]
+
+CALCULATION METHOD SELECTED: [Method name]
+```
+
+**Output Format:**
+```
+GUIDELINE-BASED CALCULATION:
+Document Type: [Type]
+Sub-type: [If bank statement, specify Salaried or Closing Balance]
+Policy Type: {policy_type}
+Customer Age: {customer_age}
+Applicable Formula: [Exact formula from guidelines]
+Age-based Multiplier: [X]x
+
+INPUT VALUES:
+[List all extracted values with source references]
+
+CALCULATION STEPS:
+Step 1: [First calculation with actual numbers]
+Step 2: [Second calculation if applicable]
+Step 3: [Final calculation]
+
+FINANCIAL VIABILITY: ₹[Final Amount]
+METHOD JUSTIFICATION: [Why this specific method was chosen for bank statements]
+```
+
+**STEP 5: VALIDATION AND COMPARISON**
+Compare your calculation with the generic method to ensure accuracy.
+
+**STEP 6: COMPREHENSIVE ANALYSIS**
+Provide detailed analysis including:
+
+**Document Analysis Summary:**
+| Parameter | Value | Source Location | Document Type Method |
+|-----------|-------|----------------|---------------------|
+
+**Risk Assessment:**
+- Income Stability: [Analysis]
+- Debt-to-Income Ratio: [If applicable]
+- Financial Capacity: [Assessment]
+- Premium Affordability: [Based on calculated viability]
+
+**Final Recommendation:**
+- Policy Eligibility: Approved/Conditional/Declined
+- Justification: [Why this specific calculation method was used]
+
+**CRITICAL INSTRUCTIONS:**
+1. NEVER use the generic age-based multiplier ({income_multiplier}x) alone - it's only for reference
+2. ALWAYS use the document-type-specific calculation method from guidelines
+3. For bank statements, ALWAYS perform salary detection first, then choose appropriate method
+4. Extract EXACT numerical values from customer documents
+5. Show ALL calculation steps with actual numbers
+6. Reference specific guideline sections/pages
+7. If document type is unclear, state this and explain your reasoning
+8. If multiple document types are present, prioritize the most reliable one (usually Salary Slip or ITR)
+
+**Customer Information:**
+- Age: {customer_age} years
+- Policy Type: {policy_type}
+- Reference Generic Multiplier: {income_multiplier}x (DO NOT USE - for reference only)
+
+**Question:** {question}
+**Guidelines Context:** {guidelines_context}
+**Customer Financial Documents:** {customer_context}
+
+**RESPONSE:**
+"""
+
+specific_template = """
+You are a financial underwriting expert. Answer the specific question asked based on the customer's financial documents and underwriting guidelines. 
+IMPORTANT: Mention the customer financial document type.
+IMPORTANT: PLEASE DO CORRECT CALCULATIONS
+CRITICAL: All NUMBERS TO BE CONSIDERED IN INDIAN RUPEES AND SYSTEM
+
+**BANK STATEMENT SPECIAL HANDLING:**
+If analyzing bank statements, you MUST:
+
+1. **FIRST: Detect Salary Credits**
+   - Scan for salary-related transactions: "SALARY", "SAL", "PAY", "PAYROLL", "WAGES"
+   - Look for regular monthly employer credits
+   - Check transaction patterns over 3-6 months
+
+2. **THEN: Choose Calculation Method**
+   - IF salary credits found → Use Bank Statement (Salaried) method
+   - IF NO salary credits found → Use Bank Statement (Closing Balance) method
+
+3. **SHOW YOUR DETECTION PROCESS**
+   ```
+   BANK STATEMENT DETECTION:
+   Salary Search Result: [Found/Not Found]
+   Evidence: [List specific transactions or lack thereof]
+   Method Selected: [Salaried/Closing Balance]
+   ```
+
+**Customer Information:**
+- Age: {customer_age} years
+- Policy Type: {policy_type}
+- Income Multiplier: {income_multiplier}x
+
+Based on the identified document type, customer age ({customer_age}), and policy type ({policy_type}), extract the EXACT calculation method from the guidelines.
+
+**From the Guidelines Document, use these SPECIFIC formulas:**
+
+**For Salary Slips:**
+- Term Cases: Annual Salary = Monthly Salary × 12; Financial Viability = Annual Salary × Income Multiplier
+- Non-Term Cases: Annual Salary = Monthly Salary × 12; Annual Bonus = Annual Salary × 0.10; Total = Annual Salary + Annual Bonus; Financial Viability = Total × Income Multiplier
+
+**For Bank Statement (Salaried) - USE ONLY when salary credits detected:**
+- Term Cases: Average Monthly Salary (last 3 months) × 12; Add 30% to get Gross Annual Salary; Financial Viability = Gross Annual Salary × Age-based Multiplier
+- Non-Term Cases: Average Monthly Salary (last 6 months) × 12; Financial Viability = Annual Income × Age-based Multiplier
+
+**For Bank Statement (Closing Balance) - USE ONLY when NO salary credits found:**
+- Term Cases: Average Closing Balance (last 3 months) × 12; Financial Viability = Annual Average Income × Age-based Multiplier
+- Non-Term Cases: Same as Term Cases
+
+**For ITR & COI:**
+- Term Cases: Only Earned Income (exclude unearned); Financial Viability = Total Earned Income × Age-based Multiplier
+- Non-Term Cases: Include ALL income types (earned + unearned); Financial Viability = Total Income × Age-based Multiplier
+
+**For Form 16:**
+- Term Cases: Gross Income from Part A; Financial Viability = Annual Income × Age-based Multiplier
+
+**For Mutual Fund Statement - SIP:**
+- Term Cases: Monthly SIP × 12 = Annual Income; Financial Viability = Annual Income × Age-based Multiplier
+
+**For Credit Card Statements:**
+- Term Cases: Monthly CC Statement Value × 6 = Annual Income; Financial Viability = Annual Income × Age-based Multiplier
+
+**For Car Ownership:**
+- Term Cases: Car IDV Value × 2 = Annual Income; Financial Viability = Annual Income × Age-based Multiplier
+
+**For Fixed Deposits:**
+- Term Cases: Investment Value × 0.05 = Estimated Annual Income; Financial Viability = Annual Income × Age-based Multiplier
+
+**For Home Loan:**
+- Term Cases: Monthly EMI × 24 = Annual Income; Financial Viability = Annual Income × Age-based Multiplier
+
+**For House/Shop Ownership:**
+- Term Cases: Financial Viability = Property Value × 0.50
+
+**AGE-BASED MULTIPLIER SELECTION**
+Use the correct age-based multiplier from guidelines:
+
+**Term Cases Multipliers:**
+- Age 18-30: 25x
+- Age 31-35: 25x  
+- Age 36-40: 20x
+- Age 41-45: 15x
+- Age 46-50: 12x
+- Age 51-55: 10x
+- Age ≥56: 5x
+
+**Non-Term Cases Multipliers:**
+- Age 18-30: 35x
+- Age 31-35: 30x
+- Age 36-40: 25x
+- Age 41-45: 20x
+- Age 46-50: 15x
+- Age 51-65: 10x
+- Age >65: 6x
+
+**STEP 4: PRECISE CALCULATION**
+Apply the exact formula for the identified document type using actual values from customer documents.
+
+**Output Format:**
+```
+GUIDELINE-BASED CALCULATION:
+Document Type: [Type]
+Policy Type: {policy_type}
+Customer Age: {customer_age}
+Applicable Formula: [Exact formula from guidelines]
+Age-based Multiplier: [X]x
+
+INPUT VALUES:
+[List all extracted values with source references]
+
+CALCULATION STEPS:
+Step 1: [First calculation with actual numbers]
+Step 2: [Second calculation if applicable]
+Step 3: [Final calculation]
+
+FINANCIAL VIABILITY: ₹[Final Amount]
+```
+
+**STEP 5: VALIDATION AND COMPARISON**
+Compare your calculation with the generic method to ensure accuracy.
+
+**STEP 6: COMPREHENSIVE ANALYSIS**
+Provide detailed analysis including:
+
+**Document Analysis Summary:**
+| Parameter | Value | Source Location | Document Type Method | Age-Generic Method | Variance |
+|-----------|-------|----------------|---------------------|-------------------|----------|
+
+**Risk Assessment:**
+- Income Stability: [Analysis]
+- Debt-to-Income Ratio: [If applicable]
+- Financial Capacity: [Assessment]
+- Premium Affordability: [Based on calculated viability]
+
+**Final Recommendation:**
+- Policy Eligibility: Approved/Conditional/Declined
+- Justification: [Why this specific calculation method was used]
+
+**CRITICAL INSTRUCTIONS:**
+1. NEVER use the generic age-based multiplier ({income_multiplier}x) alone - it's only for reference
+2. ALWAYS use the document-type-specific calculation method from guidelines
+3. Extract EXACT numerical values from customer documents
+4. Show ALL calculation steps with actual numbers
+5. Reference specific guideline sections/pages
+6. If document type is unclear, state this and explain your reasoning
+7. If multiple document types are present, prioritize the most reliable one (usually Salary Slip or ITR)
+
+**Customer Information:**
+- Age: {customer_age} years
+- Policy Type: {policy_type}
+- Reference Generic Multiplier: {income_multiplier}x (DO NOT USE - for reference only)
+
+**Question:** {question}
+**Guidelines Context:** {guidelines_context}
+**Customer Financial Documents:** {customer_context}
+
+**RESPONSE:**
+"""
+
+specific_template = """
+You are a financial underwriting expert. Answer the specific question asked based on the customer's financial documents and underwriting guidelines. 
+IMPORTANT: Mention the customer financial document type.
+IMPORTANT: PLEASE DO CORRECT CALCULATIONS
+CRITICAL: All NUMBERS TO BE CONSIDERED IN INDIAN RUPEES AND SYSTEM
+
+
+**Customer Information:**
+- Age: {customer_age} years
+- Policy Type: {policy_type}
+- Income Multiplier: {income_multiplier}x
+
+Based on the identified document type, customer age ({customer_age}), and policy type ({policy_type}), extract the EXACT calculation method from the guidelines.
+
+**From the Guidelines Document, use these SPECIFIC formulas:**
+
+**For Salary Slips:**
+- Term Cases: Annual Salary = Gross Monthly Salary × 12; Financial Viability = Annual Salary × Income Multiplier
+- Non-Term Cases: Annual Salary = Gross Monthly Salary × 12; Annual Bonus = Annual Salary × 0.10; Total = Annual Salary + Annual Bonus; Financial Viability = Total × Income Multiplier
+
+**For Bank Statement (Salaried):**
+- Term Cases: Average Monthly Salary (last 3 months) × 12; Add 30% to get Gross Annual Salary; Financial Viability = Gross Annual Salary × Age-based Multiplier
+- Non-Term Cases: Average Monthly Salary (last 6 months) × 12; Financial Viability = Annual Income × Age-based Multiplier
+
+**For Bank Statement (Closing Balance):**
+- Term Cases: Average Closing Balance (last 3 months) × 12; Financial Viability = Annual Average Income × Age-based Multiplier
+
+**For ITR & COI:**
+- Term Cases: Only Earned Income (exclude unearned); Financial Viability = Total Earned Income × Age-based Multiplier
+- Non-Term Cases: Include ALL income types (earned + unearned); Financial Viability = Total Income × Age-based Multiplier
+
+**For Form 16:**
+- Term Cases: Gross Income from Part A; Financial Viability = Annual Income × Age-based Multiplier
+
+**For Mutual Fund Statement - SIP:**
+- Term Cases: Monthly SIP × 12 = Annual Income; Financial Viability = Annual Income × Age-based Multiplier
+
+**For Credit Card Statements:**
+- Term Cases: Monthly CC Statement Value × 6 = Annual Income; Financial Viability = Annual Income × Age-based Multiplier
+
+**For Car Ownership:**
+- Term Cases: Car IDV Value × 2 = Annual Income; Financial Viability = Annual Income × Age-based Multiplier
+
+**For Fixed Deposits:**
+- Term Cases: Investment Value × 0.05 = Estimated Annual Income; Financial Viability = Annual Income × Age-based Multiplier
+
+**For Home Loan:**
+- Term Cases: Monthly EMI × 24 = Annual Income; Financial Viability = Annual Income × Age-based Multiplier
+
+**For House/Shop Ownership:**
+- Term Cases: Financial Viability = Property Value × 0.50
+
+AGE-BASED MULTIPLIER SELECTION**
+Use the correct age-based multiplier from guidelines:
+
+**Term Cases Multipliers:**
+- Age 18-30: 25x
+- Age 31-35: 25x  
+- Age 36-40: 20x
+- Age 41-45: 15x
+- Age 46-50: 12x
+- Age 51-55: 10x
+- Age ≥56: 5x
+
+**Non-Term Cases Multipliers:**
+- Age 18-30: 35x
+- Age 31-35: 30x
+- Age 36-40: 25x
+- Age 41-45: 20x
+- Age 46-50: 15x
+- Age 51-65: 10x
+- Age >65: 6x
+
+PRECISE CALCULATION**
+Apply the exact formula for the identified document type using actual values from customer documents.
+
+IMPORTANT: The documents contain both TEXT and TABLE data.
+
+CRITICAL: Please search carefully in both text content and tabular data. Financial documents often have key information in table format. Also, do not mention steps in the output.
+
+Be concise and specific. Only provide the information directly relevant to the question asked. If you find the information in a table, mention the table number and page.
+
+Question: {question}
+Customer Financial Documents: {customer_context}
+Answer:
+"""
+
+def determine_question_type(question: str) -> str:
+    comprehensive_keywords = [
+        "complete analysis", "full report", "comprehensive", "detailed analysis",
+        "overall assessment", "complete evaluation", "full evaluation",
+        "risk assessment", "financial capacity", "policy eligibility"
+    ]
+    
+    question_lower = question.lower()
+    
+    if any(keyword in question_lower for keyword in comprehensive_keywords):
+        return "comprehensive"
+    
+    specific_indicators = [
+        "what is", "how much", "when", "where", "which", "who",
+        "calculate", "show me", "find", "extract", "tell me about"
+    ]
+    
+    if any(indicator in question_lower for indicator in specific_indicators):
+        return "specific"
+    
+    return "specific"
+
+guidelines_directory = '.github/guidelines/'
+customer_docs_directory = '.github/customer_docs/'
+
+os.makedirs(guidelines_directory, exist_ok=True)
+os.makedirs(customer_docs_directory, exist_ok=True)
+
+embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+guidelines_vector_store = InMemoryVectorStore(embeddings)
+customer_docs_vector_store = InMemoryVectorStore(embeddings)
+
+def initialize_model():
+    """Initialize the ChatGroq model with API key from session state"""
+    if not st.session_state.groq_api_key:
+        return None
+    
+    try:
+        model = ChatGroq(
+            groq_api_key=st.session_state.groq_api_key,
+            model_name="meta-llama/llama-4-scout-17b-16e-instruct", 
+            temperature=0.3
+        )
+        st.session_state.model_initialized = True
+        return model
+    except Exception as e:
+        st.error(f"Error initializing Groq model: {str(e)}")
+        return None
+
+def upload_pdf(file, directory):
+    file_path = directory + file.name
+    with open(file_path, "wb") as f:
+        f.write(file.getbuffer())
+    return file_path
+
+def process_documents_with_pii_shield(documents):
+    protected_docs = []
+    for doc in documents:
+        anonymized_content = pii_shield.anonymize_text(doc.page_content)
+        
+        protected_doc = Document(
+            page_content=anonymized_content,
+            metadata=doc.metadata
+        )
+        protected_docs.append(protected_doc)
+    
+    return protected_docs
+
+def analyze_customer_finances(question, guidelines_docs, customer_docs):
+    if not st.session_state.groq_api_key:
+        st.error("⚠️ Please enter your Groq API key to proceed with analysis.")
+        return "API key required for analysis."
+    
+    if not st.session_state.model_initialized:
+        model = initialize_model()
+        if not model:
+            return "Failed to initialize model. Please check your API key."
+    else:
+        model = initialize_model()
+    guidelines_context = "\n\n".join([doc.page_content for doc in guidelines_docs])
+    
+    financial_docs = extract_financial_info(customer_docs)
+    customer_context = "\n\n".join([doc.page_content for doc in financial_docs])
+    
+    question_type = determine_question_type(question)
+    
+    customer_age = st.session_state.customer_age or 30
+    policy_type = st.session_state.policy_type or "Term"
+    income_multiplier = get_income_multiplier(customer_age, policy_type)
+    
+    if question_type == "comprehensive":
+        template = comprehensive_template
+    else:
+        template = specific_template
+    
+    prompt = ChatPromptTemplate.from_template(template)
+    chain = prompt | model
+    
+    response = chain.invoke({
+        "question": question,
+        "guidelines_context": guidelines_context,
+        "customer_context": customer_context,
+        "customer_age": customer_age,
+        "policy_type": policy_type,
+        "income_multiplier": income_multiplier
+    })
+    
+    return response.content
+
+if "conversation_history" not in st.session_state:
+    st.session_state.conversation_history = []
+if "guidelines_loaded" not in st.session_state:
+    st.session_state.guidelines_loaded = False
+if "customer_docs_loaded" not in st.session_state:
+    st.session_state.customer_docs_loaded = False
+if "table_stats" not in st.session_state:
+    st.session_state.table_stats = {"total_tables": 0, "tables_by_page": {}}
+if "extracted_financial_data" not in st.session_state:
+    st.session_state.extracted_financial_data = None
+if "customer_age" not in st.session_state:
+    st.session_state.customer_age = None
+if "policy_type" not in st.session_state:
+    st.session_state.policy_type = "Term"
+
+if "google_vision_api_key" not in st.session_state:
+    st.session_state.google_vision_api_key = ""
+if "groq_api_key" not in st.session_state:
+    st.session_state.groq_api_key = ""
+if "model_initialized" not in st.session_state:
+    st.session_state.model_initialized = False
+
+if "last_risk_assessment" not in st.session_state:
+    st.session_state.last_risk_assessment = False
+    
+
+with st.sidebar:
+    pii_enabled = st.toggle("Enable PII Shield", value=True, help="Automatically anonymize personal information")
+    pii_shield.anonymization_enabled = pii_enabled
+    
+    if pii_enabled:
+        st.success("🛡️ PII Shield Active")
+        
+        if pii_shield.replacement_map:
+            st.markdown("#### PII Detection Summary")
+            pii_summary = pii_shield.get_pii_summary()
+            for pii_type, count in pii_summary.items():
+                st.write(f"• {pii_type.replace('_', ' ').title()}: {count} instances")
+    else:
+        st.warning("⚠️ PII Shield Disabled - Use with caution!")
+    st.markdown("---")
+    st.markdown("### 🔑 API Configuration")
+    
+    groq_key = st.text_input(
+        "Groq API Key",
+        type="password",
+        value=st.session_state.groq_api_key,
+        help="Enter your Groq API key for LLM processing"
+    )
+    
+    if groq_key != st.session_state.groq_api_key:
+        st.session_state.groq_api_key = groq_key
+        st.session_state.model_initialized = False
+    
+    vision_key = st.text_input(
+        "Google Vision API Key",
+        type="password",
+        value=st.session_state.google_vision_api_key,
+        help="Enter your Google Vision API key for OCR processing"
+    )
+    
+    if vision_key != st.session_state.google_vision_api_key:
+        st.session_state.google_vision_api_key = vision_key
+    
+    if st.session_state.groq_api_key:
+        st.success("✅ Groq API Key Set")
+    else:
+        st.error("❌ Groq API Key Required")
+    
+    if st.session_state.google_vision_api_key:
+        st.success("✅ Google Vision API Key Set")
+    else:
+        st.warning("⚠️ Google Vision API Key Optional (for scanned PDFs)")
+    st.markdown("### 📸 Google Vision Status")
+    vision_client = setup_vision_client()
+    if vision_client:
+        st.success("✅ Google Vision API Ready")
+    else:
+        st.error("❌ Google Vision API Not Available")
+        st.markdown("Set `GOOGLE_VISION_API_KEY` in secrets.toml or environment")
+    
+    if st.button("🗑️ Clear Analysis History"):
+        st.session_state.conversation_history = []
+        st.session_state.table_stats = {"total_tables": 0, "tables_by_page": {}}
+        pii_shield.replacement_map.clear()
+        st.rerun()
+    
+    if st.button("🧹 Clear PII Cache"):
+        pii_shield.replacement_map.clear()
+        st.success("PII cache cleared")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    guidelines_files = st.file_uploader(
+        "📋 Upload Financial Underwriting Guidelines",
+        type="pdf",
+        accept_multiple_files=True,
+        key="guidelines_uploader"
+    )
+    
+    if guidelines_files and not st.session_state.guidelines_loaded:
+        with st.spinner("Processing guidelines with table extraction..."):
+            all_guideline_docs = []
+            for file in guidelines_files:
+                file_path = upload_pdf(file, guidelines_directory)
+                documents = load_pdf_with_tables(file_path)
+                chunked_documents = split_text(documents)
+                all_guideline_docs.extend(chunked_documents)
+            
+            guidelines_vector_store.add_documents(all_guideline_docs)
+            st.session_state.guidelines_loaded = True
+            st.success(f"✅ {len(guidelines_files)} guideline document(s) processed successfully!")
+
+with col2:    
+    customer_files = st.file_uploader(
+        "💼 Upload Customer Financial Documents",
+        type="pdf",
+        accept_multiple_files=True,
+        key="customer_uploader",
+        help="Supports both regular PDFs and scanned documents (using Google Vision API)"
+    )
+    
+    if customer_files:
+        with st.spinner("Processing customer documents with enhanced table extraction and Vision API..."):
+            all_customer_docs = []
+            table_count = 0
+            tables_by_page = {}
+            scanned_count = 0
+            
+            customer_doc_names = [file.name for file in customer_files]
+            st.session_state.customer_doc_names = customer_doc_names
+            
+            for file in customer_files:
+                file_path = upload_pdf(file, customer_docs_directory)
+                
+                documents = load_customer_pdf_with_vision(file_path)
+                
+                if any(doc.metadata.get("extraction_method") == "google_vision" for doc in documents):
+                    scanned_count += 1
+                
+                for doc in documents:
+                    if doc.metadata.get("type") == "table":
+                        table_count += 1
+                        page = doc.metadata.get("page", 0)
+                        tables_by_page[page] = tables_by_page.get(page, 0) + 1
+                
+                chunked_documents = split_text(documents)
+                
+                if pii_shield.anonymization_enabled:
+                    protected_documents = process_documents_with_pii_shield(chunked_documents)
+                    all_customer_docs.extend(protected_documents)
+                else:
+                    all_customer_docs.extend(chunked_documents)
+            
+            st.session_state.table_stats = {
+                "total_tables": table_count,
+                "tables_by_page": tables_by_page
+            }
+            
+            customer_docs_vector_store.add_documents(all_customer_docs)
+            st.session_state.customer_docs_loaded = True
+            
+            success_msg = f"✅ {len(customer_files)} customer document(s) processed!"
+            if scanned_count > 0:
+                success_msg += f" 📸 {scanned_count} scanned with Vision API!"
+            if table_count > 0:
+                success_msg += f" 📊 {table_count} tables extracted!"
+            
+            if pii_shield.anonymization_enabled and pii_shield.replacement_map:
+                success_msg += f" 🛡️ {len(pii_shield.replacement_map)} PII elements anonymized!"
+            
+            st.success(success_msg)
+
+if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
+    st.success("🎉 All documents loaded! Enhanced table extraction and Vision API ready for financial analysis.")
+elif st.session_state.guidelines_loaded:
+    st.warning("Guidelines loaded. Please upload customer financial documents.")
+elif st.session_state.customer_docs_loaded:
+    st.warning("Customer documents loaded. Please upload underwriting guidelines.")
+else:
+    st.info("📤 Please upload both guidelines and customer financial documents to begin analysis.")
+
+if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
+    st.markdown("---")
+    st.markdown("### 👤 Customer Information")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        customer_age = st.number_input(
+            "Customer Age",
+            min_value=18,
+            max_value=80,
+            value=st.session_state.customer_age or 30,
+            help="Required for calculating income multiplier"
+        )
+        st.session_state.customer_age = customer_age
+    
+    with col2:
+        policy_type = st.selectbox(
+            "Policy Type",
+            ["Term", "Non-Term"],
+            index=0 if st.session_state.policy_type == "Term" else 1,
+            help="Policy type affects income multiplier calculation"
+        )
+        st.session_state.policy_type = policy_type
+    
+    if customer_age:
+        multiplier = get_income_multiplier(customer_age, policy_type)
+        st.info(f"📊 Current Income Multiplier: **{multiplier}x** (Age: {customer_age}, Policy: {policy_type})")
+
+def create_risk_assessment_docx(assessment_content, customer_age, policy_type, filename="risk_assessment_report.docx"):
+    """Create a professionally formatted DOCX document for Risk Assessment with proper markdown parsing"""
+ 
+    doc = DocxDocument()
+    
+    title = doc.add_heading('Financial Risk Assessment Report', 0)
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    doc.add_heading('Customer Information', level=1)
+    customer_info = doc.add_paragraph()
+    customer_info.add_run(f'Customer Age: ').bold = True
+    customer_info.add_run(f'{customer_age} years\n')
+    customer_info.add_run(f'Policy Type: ').bold = True
+    customer_info.add_run(f'{policy_type}\n')    
+    doc.add_heading('Risk Assessment Analysis', level=1)
+    
+    lines = assessment_content.split('\n')
+    i = 0
+    
+    while i < len(lines):
+        line = lines[i].strip()
+        
+        if not line:
+            i += 1
+            continue
+        
+        if '|' in line and detect_table_start(line):
+            table_lines = []
+            j = i
+            
+            while j < len(lines) and ('|' in lines[j] or lines[j].strip() == '' or lines[j].strip().startswith('---')):
+                if lines[j].strip() and not lines[j].strip().startswith('---'):
+                    table_lines.append(lines[j].strip())
+                j += 1
+            
+            if table_lines:
+                create_docx_table(doc, table_lines)
+            
+            i = j
+            continue
+        
+        if line.startswith('###'):
+            clean_heading = clean_markdown_text(line[3:].strip())
+            doc.add_heading(clean_heading, level=3)
+        elif line.startswith('##'):
+            clean_heading = clean_markdown_text(line[2:].strip())
+            doc.add_heading(clean_heading, level=2)
+        elif line.startswith('#'):
+            clean_heading = clean_markdown_text(line[1:].strip())
+            doc.add_heading(clean_heading, level=1)
+        elif is_heading_by_content(line):
+            clean_heading = clean_markdown_text(line)
+            doc.add_heading(clean_heading, level=2)
+        elif line.startswith('•') or line.startswith('-') or line.startswith('*'):
+            clean_text = clean_markdown_text(line[1:].strip())
+            add_formatted_paragraph(doc, clean_text, style='List Bullet')
+        elif ':' in line and len(line.split(':', 1)) == 2 and not line.count(':') > 3:
+            key, value = line.split(':', 1)
+            if len(key.strip()) < 50:
+                p = doc.add_paragraph()
+                clean_key = clean_markdown_text(key.strip())
+                clean_value = clean_markdown_text(value.strip())
+                p.add_run(f'{clean_key}: ').bold = True
+                add_formatted_text_to_paragraph(p, clean_value)
+            else:
+                add_formatted_paragraph(doc, clean_markdown_text(line))
+        else:
+            add_formatted_paragraph(doc, clean_markdown_text(line))
+        
+        i += 1
+    
+    doc.add_page_break()
+    footer_section = doc.sections[0]
+    footer = footer_section.footer
+    footer_para = footer.paragraphs[0]
+    footer_para.text = "Financial Underwriting Assistant - Confidential Report"
+    footer_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    buffer = BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    
+    return buffer
+
+def clean_markdown_text(text):
+    """Remove markdown formatting symbols from text"""
+    if not text:
+        return ""
+    
+    text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
+    text = re.sub(r'\*(.*?)\*', r'\1', text)
+    text = re.sub(r'`(.*?)`', r'\1', text)
+    text = re.sub(r'#{1,6}\s*', '', text)
+    
+    return text.strip()
+
+def add_formatted_paragraph(doc, text, style=None):
+    """Add a paragraph with markdown formatting converted to DOCX formatting"""
+    if not text.strip():
+        return
+    
+    p = doc.add_paragraph(style=style)
+    add_formatted_text_to_paragraph(p, text)
+
+def add_formatted_text_to_paragraph(paragraph, text):
+    """Add formatted text to a paragraph, converting markdown to DOCX formatting"""
+    if not text:
+        return
+    
+    parts = re.split(r'(\*\*.*?\*\*)', text)
+    
+    for part in parts:
+        if part.startswith('**') and part.endswith('**'):
+            bold_text = part[2:-2]
+            run = paragraph.add_run(bold_text)
+            run.bold = True
+        else:
+            italic_parts = re.split(r'(\*.*?\*)', part)
+            for italic_part in italic_parts:
+                if italic_part.startswith('*') and italic_part.endswith('*') and not italic_part.startswith('**'):
+                    italic_text = italic_part[1:-1]
+                    run = paragraph.add_run(italic_text)
+                    run.italic = True
+                else:
+                    if italic_part:
+                        paragraph.add_run(italic_part)
+
+def detect_table_start(line):
+    """Detect if a line is the start of a markdown-style table"""
+    pipe_count = line.count('|')
+    if pipe_count >= 2:
+        cells = [cell.strip() for cell in line.strip('|').split('|')]
+        return len(cells) >= 2 and any(len(cell.strip()) > 0 for cell in cells)
+    return False
+
+def is_heading_by_content(line):
+    """Determine if a line should be treated as a heading based on content"""
+    heading_keywords = [
+        'ANALYSIS', 'ASSESSMENT', 'SUMMARY', 'RECOMMENDATION', 'VIABILITY', 
+        'CALCULATION', 'DOCUMENT', 'GUIDELINE', 'INPUT VALUES', 'STEPS',
+        'RISK', 'FINAL', 'CONCLUSION', 'FINDINGS', 'OVERVIEW'
+    ]
+    
+    line_upper = line.upper()
+    
+    if line.startswith('#') or '**' in line:
+        return False
+    
+    if line.isupper() and len(line) > 3 and len(line) < 100:
+        return True
+    
+    if any(keyword in line_upper for keyword in heading_keywords):
+        return True
+    
+    if line.endswith(':') and len(line) < 100 and not ':' in line[:-1]:
+        return True
+    
+    return False
+
+def create_docx_table(doc, table_lines):
+    """Create a properly formatted DOCX table from markdown-style table lines"""
+    if not table_lines:
+        return
+    
+    parsed_rows = []
+    for line in table_lines:
+        cells = [clean_markdown_text(cell.strip()) for cell in line.strip('|').split('|')]
+        if cells and any(cell.strip() for cell in cells):
+            parsed_rows.append(cells)
+    
+    if not parsed_rows:
+        return
+    
+    max_cols = max(len(row) for row in parsed_rows)
+    
+    for row in parsed_rows:
+        while len(row) < max_cols:
+            row.append('')
+    
+    table = doc.add_table(rows=len(parsed_rows), cols=max_cols)
+    table.style = 'Table Grid'
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    
+    for row_idx, row_data in enumerate(parsed_rows):
+        table_row = table.rows[row_idx]
+        for col_idx, cell_data in enumerate(row_data):
+            cell = table_row.cells[col_idx]
+            cell.text = cell_data.strip()
+            
+            if row_idx == 0:
+                for paragraph in cell.paragraphs:
+                    for run in paragraph.runs:
+                        run.bold = True
+                
+                try:
+                    cell_elem = cell._element
+                    cell_properties = cell_elem.get_or_add_tcPr()
+                    shade_elem = OxmlElement('w:shd')
+                    shade_elem.set(qn('w:fill'), 'D9E2F3')
+                    cell_properties.append(shade_elem)
+                except:
+                    pass
+    
+    for col in table.columns:
+        col.width = Inches(2.0)
+    
+    doc.add_paragraph('')
+    
+def enhanced_risk_assessment_button():
+    """Enhanced Risk Assessment with improved DOCX export option"""
+    col_assess, col_export = st.columns([3, 1])
+    
+    with col_assess:
+        risk_assess_clicked = st.button("⚖️ Risk Assessment", use_container_width=True)
+    
+    with col_export:
+        export_clicked = st.button("📄 Export DOCX", use_container_width=True)
+    
+    if risk_assess_clicked:
+        st.session_state.conversation_history.append({
+            "role": "user", 
+            "content": "Provide a comprehensive financial risk assessment using all available text and tabular data."
+        })
+        st.session_state.last_risk_assessment = True
+    
+    if export_clicked:
+        risk_assessment_content = None
+        for msg in reversed(st.session_state.conversation_history):
+            if (msg.get("role") == "assistant" and 
+                ("risk assessment" in msg.get("content", "").lower() or 
+                 "financial viability" in msg.get("content", "").lower() or
+                 "analysis" in msg.get("content", "").lower())):
+                risk_assessment_content = msg.get("content")
+                break
+        
+        if risk_assessment_content:
+            try:
+                docx_buffer = create_risk_assessment_docx(
+                    risk_assessment_content, 
+                    st.session_state.customer_age or 30, 
+                    st.session_state.policy_type or "Term"
+                )
+                
+                customer_doc_name = ""
+                if hasattr(st.session_state, 'customer_doc_names') and st.session_state.customer_doc_names:
+                    first_doc = st.session_state.customer_doc_names[0]
+                    customer_doc_name = first_doc.replace('.pdf', '').replace(' ', '_')
+                    if len(customer_doc_name) > 20:
+                        customer_doc_name = customer_doc_name[:20]
+                    customer_doc_name = f"_{customer_doc_name}"
+                
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                filename = f"risk_assessment_report{customer_doc_name}.docx"
+                
+                st.download_button(
+                    label="📥 Download Risk Assessment Report",
+                    data=docx_buffer.getvalue(),
+                    file_name=filename,
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    use_container_width=True
+                )
+                st.success("✅ DOCX report generated successfully with proper table formatting!")
+                
+            except Exception as e:
+                st.error(f"Error generating DOCX: {str(e)}")
+                st.error("Please check the console for detailed error information.")
+                st.write("Debug info:")
+                st.write(f"Content length: {len(risk_assessment_content) if risk_assessment_content else 0}")
+                st.write(f"Contains tables: {'|' in risk_assessment_content if risk_assessment_content else False}")
+        else:
+            st.warning("⚠️ No risk assessment found to export. Please run a risk assessment first.")
+
+if st.session_state.guidelines_loaded and st.session_state.customer_docs_loaded:
+    st.markdown("---")
+    st.markdown("### 🔍 Enhanced Financial Analysis with Table Data & Vision OCR")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        if st.button("💰 Income Analysis", use_container_width=True):
+            st.session_state.conversation_history.append({
+                "role": "user", 
+                "content": "What is the customer's monthly income and income sources? Look for both text and tabular data."
+            })
+    
+    with col2:
+        if st.button("📊 Investment Analysis", use_container_width=True):
+            st.session_state.conversation_history.append({
+                "role": "user", 
+                "content": "Analyze the customer's investment portfolio from mutual fund statements and investment tables."
+            })
+    
+    with col3:
+        enhanced_risk_assessment_button()
+    
+    with col4:
+        if st.button("📋 Full Report", use_container_width=True):
+            st.session_state.conversation_history.append({
+                "role": "user", 
+                "content": "Provide a complete comprehensive financial analysis report using all text and table data."
+            })
+    
+    question = st.chat_input("Please ask a question")
+    
+    if question:
+        st.session_state.conversation_history.append({"role": "user", "content": question})
+    
+    if st.session_state.conversation_history and st.session_state.conversation_history[-1]["role"] == "user":
+        if st.session_state.customer_age is None:
+            st.warning("⚠️ Please enter customer age before proceeding with analysis.")
+            st.stop()
+    
+        with st.spinner("Analyzing financial documents with table data..."):
+            latest_question = st.session_state.conversation_history[-1]["content"]
+            guidelines_docs = guidelines_vector_store.similarity_search(latest_question, k=5)
+            customer_docs = customer_docs_vector_store.similarity_search(latest_question, k=15)
+        
+            answer = analyze_customer_finances(latest_question, guidelines_docs, customer_docs)
+        
+            st.session_state.conversation_history.append({"role": "assistant", "content": answer})
+    
+    for message in st.session_state.conversation_history:
+        if message["role"] == "user":
+            st.chat_message("user").write(message["content"])
+        elif message["role"] == "assistant":
+            st.chat_message("assistant").write(message["content"])
