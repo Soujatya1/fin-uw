@@ -38,7 +38,6 @@ st.set_page_config(
 st.title("💰 Financial Underwriting Assistant")
 
 def get_income_multiplier(age: int, policy_type: str) -> int:
-    """Get income multiplier based on age and policy type"""
     if policy_type.lower() == "term":
         if 18 <= age <= 30:
             return 25
@@ -370,7 +369,6 @@ def extract_text_with_vision(pdf_path):
         st.error(f"Error with Google Vision API: {str(e)}")
         return []
 
-# NEW FUNCTION: Extract tables using Google Vision API
 def extract_tables_with_vision(pdf_path):
     vision_client = setup_vision_client()
     if not vision_client:
@@ -383,14 +381,12 @@ def extract_tables_with_vision(pdf_path):
         for img_info in images:
             image = vision.Image(content=img_info["data"])
             
-            # Use document_text_detection for better table structure detection
             response = vision_client.document_text_detection(image=image)
             
             if response.error.message:
                 st.error(f"Vision API error: {response.error.message}")
                 continue
             
-            # Extract table-like structures from the response
             if response.full_text_annotation:
                 tables = extract_table_structures(response.full_text_annotation, img_info["page"])
                 table_documents.extend(tables)
@@ -402,14 +398,11 @@ def extract_tables_with_vision(pdf_path):
         return []
 
 def extract_table_structures(full_text_annotation, page_num):
-    """Extract table-like structures from Vision API response"""
     tables = []
     
-    # Group text blocks that appear to be in tabular format
     blocks = full_text_annotation.pages[0].blocks if full_text_annotation.pages else []
     
     for block_idx, block in enumerate(blocks):
-        # Check if block contains table-like structure
         if is_table_block(block):
             table_text = extract_block_text(block)
             table_csv = convert_to_csv_format(table_text)
@@ -429,22 +422,18 @@ def extract_table_structures(full_text_annotation, page_num):
     return tables
 
 def is_table_block(block):
-    """Heuristic to determine if a block contains tabular data"""
     text = extract_block_text(block)
     lines = text.strip().split('\n')
     
     if len(lines) < 2:
         return False
     
-    # Check for consistent column patterns
     column_counts = []
     for line in lines:
-        # Count potential columns (split by multiple spaces or tabs)
         columns = len([col for col in line.split() if col.strip()])
         if columns > 1:
             column_counts.append(columns)
     
-    # If most lines have similar column counts, likely a table
     if len(column_counts) >= 2:
         avg_cols = sum(column_counts) / len(column_counts)
         consistent_cols = sum(1 for count in column_counts if abs(count - avg_cols) <= 1)
@@ -453,7 +442,6 @@ def is_table_block(block):
     return False
 
 def extract_block_text(block):
-    """Extract text from a Vision API block"""
     text_lines = []
     for paragraph in block.paragraphs:
         line_text = ""
@@ -469,14 +457,11 @@ def convert_to_csv_format(table_text):
     csv_lines = []
     
     for line in lines:
-        # Split by multiple spaces (common in tables)
         columns = [col.strip() for col in line.split('  ') if col.strip()]
         if columns:
-            # Escape commas and quotes for CSV format
             escaped_columns = []
             for col in columns:
                 if ',' in col or '"' in col:
-                    # Escape quotes by doubling them, then wrap in quotes
                     escaped_col = col.replace('"', '""')
                     col = f'"{escaped_col}"'
                 escaped_columns.append(col)
@@ -484,16 +469,12 @@ def convert_to_csv_format(table_text):
     
     return '\n'.join(csv_lines)
 
-# ENHANCED FUNCTION: Extract both text and tables
 def extract_content_with_vision(pdf_path, extract_tables=True):
-    """Extract both text and tables from PDF using Google Vision API"""
     documents = []
     
-    # Extract regular text
     text_docs = extract_text_with_vision(pdf_path)
     documents.extend(text_docs)
     
-    # Extract tables if requested
     if extract_tables:
         table_docs = extract_tables_with_vision(pdf_path)
         documents.extend(table_docs)
@@ -504,7 +485,6 @@ def extract_content_with_vision(pdf_path, extract_tables=True):
     return documents
 
 def is_scanned_pdf(pdf_path):
-    """Enhanced detection for scanned vs digital PDFs"""
     try:
         with pdfplumber.open(pdf_path) as pdf:
             total_text = ""
@@ -596,7 +576,6 @@ def format_table_for_llm(df: pd.DataFrame, table_info: dict) -> str:
     return table_text
 
 def load_customer_pdf_with_vision(file_path):
-    """Enhanced function to handle mixed PDF types"""
     document_content = extract_tables_from_pdf(file_path)
     
     page_extraction_quality = {}
