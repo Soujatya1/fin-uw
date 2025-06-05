@@ -370,6 +370,137 @@ def extract_text_with_vision(pdf_path):
         st.error(f"Error with Google Vision API: {str(e)}")
         return []
 
+# NEW FUNCTION: Extract tables using Google Vision API
+def extract_tables_with_vision(pdf_path):
+    vision_client = setup_vision_client()
+    if not vision_client:
+        return []
+    
+    try:
+        images = pdf_to_images(pdf_path)
+        table_documents = []
+        
+        for img_info in images:
+            image = vision.Image(content=img_info["data"])
+            
+            # Use document_text_detection for better table structure detection
+            response = vision_client.document_text_detection(image=image)
+            
+            if response.error.message:
+                st.error(f"Vision API error: {response.error.message}")
+                continue
+            
+            # Extract table-like structures from the response
+            if response.full_text_annotation:
+                tables = extract_table_structures(response.full_text_annotation, img_info["page"])
+                table_documents.extend(tables)
+        
+        return table_documents
+        
+    except Exception as e:
+        st.error(f"Error extracting tables with Google Vision API: {str(e)}")
+        return []
+
+def extract_table_structures(full_text_annotation, page_num):
+    """Extract table-like structures from Vision API response"""
+    tables = []
+    
+    # Group text blocks that appear to be in tabular format
+    blocks = full_text_annotation.pages[0].blocks if full_text_annotation.pages else []
+    
+    for block_idx, block in enumerate(blocks):
+        # Check if block contains table-like structure
+        if is_table_block(block):
+            table_text = extract_block_text(block)
+            table_csv = convert_to_csv_format(table_text)
+            
+            doc = Document(
+                page_content=table_csv,
+                metadata={
+                    "page": page_num,
+                    "type": "table_data",
+                    "extraction_method": "google_vision_table",
+                    "block_index": block_idx,
+                    "format": "csv"
+                }
+            )
+            tables.append(doc)
+    
+    return tables
+
+def is_table_block(block):
+    """Heuristic to determine if a block contains tabular data"""
+    text = extract_block_text(block)
+    lines = text.strip().split('\n')
+    
+    if len(lines) < 2:
+        return False
+    
+    # Check for consistent column patterns
+    column_counts = []
+    for line in lines:
+        # Count potential columns (split by multiple spaces or tabs)
+        columns = len([col for col in line.split() if col.strip()])
+        if columns > 1:
+            column_counts.append(columns)
+    
+    # If most lines have similar column counts, likely a table
+    if len(column_counts) >= 2:
+        avg_cols = sum(column_counts) / len(column_counts)
+        consistent_cols = sum(1 for count in column_counts if abs(count - avg_cols) <= 1)
+        return consistent_cols / len(column_counts) >= 0.7
+    
+    return False
+
+def extract_block_text(block):
+    """Extract text from a Vision API block"""
+    text_lines = []
+    for paragraph in block.paragraphs:
+        line_text = ""
+        for word in paragraph.words:
+            word_text = "".join([symbol.text for symbol in word.symbols])
+            line_text += word_text + " "
+        text_lines.append(line_text.strip())
+    return "\n".join(text_lines)
+
+def convert_to_csv_format(table_text):
+    """Convert table text to CSV format"""
+    lines = table_text.strip().split('\n')
+    csv_lines = []
+    
+    for line in lines:
+        # Split by multiple spaces (common in tables)
+        columns = [col.strip() for col in line.split('  ') if col.strip()]
+        if columns:
+            # Escape commas and quotes for CSV format
+            escaped_columns = []
+            for col in columns:
+                if ',' in col or '"' in col:
+                    col = f'"{col.replace("""", """""""")}"'
+                escaped_columns.append(col)
+            csv_lines.append(','.join(escaped_columns))
+    
+    return '\n'.join(csv_lines)
+
+# ENHANCED FUNCTION: Extract both text and tables
+def extract_content_with_vision(pdf_path, extract_tables=True):
+    """Extract both text and tables from PDF using Google Vision API"""
+    documents = []
+    
+    # Extract regular text
+    text_docs = extract_text_with_vision(pdf_path)
+    documents.extend(text_docs)
+    
+    # Extract tables if requested
+    if extract_tables:
+        table_docs = extract_tables_with_vision(pdf_path)
+        documents.extend(table_docs)
+        
+        if table_docs:
+            st.success(f"✅ Extracted {len(table_docs)} tables from the document")
+    
+    return documents
+
 def is_scanned_pdf(pdf_path):
     """Enhanced detection for scanned vs digital PDFs"""
     try:
