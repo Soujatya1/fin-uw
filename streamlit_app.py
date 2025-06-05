@@ -476,7 +476,9 @@ def convert_to_csv_format(table_text):
             escaped_columns = []
             for col in columns:
                 if ',' in col or '"' in col:
-                    col = f'"{col.replace('"', '""')}"'
+                    # Escape quotes by doubling them, then wrap in quotes
+                    escaped_col = col.replace('"', '""')
+                    col = f'"{escaped_col}"'
                 escaped_columns.append(col)
             csv_lines.append(','.join(escaped_columns))
     
