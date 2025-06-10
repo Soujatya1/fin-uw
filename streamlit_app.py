@@ -828,7 +828,6 @@ For bank statements, you MUST first determine which calculation method to use:
 ```
 PRIMARY DOCUMENT TYPE IDENTIFIED: [Document Type]
 BANK STATEMENT SUB-TYPE: [Salaried/Closing Balance] (only for bank statements)
-SALARY DETECTION RESULT: [Found/Not Found - with evidence]
 CONFIDENCE LEVEL: High/Medium/Low
 SUPPORTING EVIDENCE: [Key identifiers found in the document]
 ```
