@@ -832,7 +832,7 @@ CONFIDENCE LEVEL: High/Medium/Low
 SUPPORTING EVIDENCE: [Key identifiers found in the document]
 ```
 
-**STEP 2: GUIDELINE LOOKUP AND FORMULA EXTRACTION**
+**GUIDELINE LOOKUP AND FORMULA EXTRACTION**
 Based on the identified document type, customer age ({customer_age}), and policy type ({policy_type}), extract the EXACT calculation method from the guidelines.
 
 **From the Guidelines Document, use these SPECIFIC formulas:**
@@ -877,7 +877,7 @@ IMPORTANT: CLOSING BALANCE IS CONSIDERED TO BE THE AVAILABLE BALANCE FOR A GIVEN
 **For House/Shop Ownership:**
 - Term Cases: Financial Viability = Property Value × 0.50
 
-**STEP 3: AGE-BASED MULTIPLIER SELECTION**
+**AGE-BASED MULTIPLIER SELECTION**
 Use the correct age-based multiplier from guidelines:
 
 **Term Cases Multipliers:**
@@ -898,7 +898,7 @@ Use the correct age-based multiplier from guidelines:
 - Age 51-65: 10x
 - Age >65: 6x
 
-**STEP 4: PRECISE CALCULATION**
+**PRECISE CALCULATION**
 Apply the exact formula for the identified document type using actual values from customer documents.
 
 **For Bank Statements - Show Detection Process:**
@@ -935,10 +935,10 @@ FINANCIAL VIABILITY: ₹[Final Amount]
 METHOD JUSTIFICATION: [Why this specific method was chosen for bank statements]
 ```
 
-**STEP 5: VALIDATION AND COMPARISON**
+**VALIDATION AND COMPARISON**
 Compare your calculation with the generic method to ensure accuracy.
 
-**STEP 6: COMPREHENSIVE ANALYSIS**
+**COMPREHENSIVE ANALYSIS**
 Provide detailed analysis including:
 
 **Document Analysis Summary:**
@@ -1096,10 +1096,10 @@ Step 3: [Final calculation]
 FINANCIAL VIABILITY: ₹[Final Amount]
 ```
 
-**STEP 5: VALIDATION AND COMPARISON**
+**VALIDATION AND COMPARISON**
 Compare your calculation with the generic method to ensure accuracy.
 
-**STEP 6: COMPREHENSIVE ANALYSIS**
+**COMPREHENSIVE ANALYSIS**
 Provide detailed analysis including:
 
 **Document Analysis Summary:**
@@ -1115,6 +1115,9 @@ Provide detailed analysis including:
 **Final Recommendation:**
 - Policy Eligibility: Approved/Conditional/Declined
 - Justification: [Why this specific calculation method was used]
+
+**SUMMARY REPORT**
+- Give a detailed summarized report for the customer and the uploaded document with a good recommendation his/her financial viability
 
 **CRITICAL INSTRUCTIONS:**
 1. NEVER use the generic age-based multiplier ({income_multiplier}x) alone - it's only for reference
