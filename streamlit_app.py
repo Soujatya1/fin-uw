@@ -971,6 +971,9 @@ Provide detailed analysis including:
 - Policy Type: {policy_type}
 - Reference Generic Multiplier: {income_multiplier}x (DO NOT USE - for reference only)
 
+**SUMMARY REPORT**
+- Give a detailed summarized report for the customer and the uploaded document with a good recommendation his/her financial viability
+
 **Question:** {question}
 **Guidelines Context:** {guidelines_context}
 **Customer Financial Documents:** {customer_context}
