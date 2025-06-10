@@ -851,7 +851,7 @@ IMPORTANT: For Salary Slips, always consider "Gross Salary".
 **For Bank Statement (Closing Balance) - ONLY when NO salary credits found:**
 - Term Cases: Average Closing Balance (last 3 months) × 12; Financial Viability = Annual Average Income × Age-based Multiplier
 - Non-Term Cases: Same as Term Cases
-IMPORTANT: CLOSING BALANCE IS CONSIDERED TO BE THE AVAILABLE BALANCE FOR A GIVEN MONTH ACCORDING TO THE LATEST DATE.
+IMPORTANT: CLOSING BALANCE IS CONSIDERED TO BE THE AVAILABLE BALANCE FOR A GIVEN MONTH ACCORDING TO THE LATEST DATE. YOU NEED TO CONSIDER THE LAST AVAILABLE BALANCE FOR THE 3 LATEST MONTHS IN THE DOCUMENTS.
 
 **For ITR & COI:**
 - Term Cases: Only Earned Income (exclude unearned); Financial Viability = Total Earned Income × Age-based Multiplier
