@@ -798,7 +798,7 @@ CRITICAL: When extracting information from Mutual Fund Statements, try and find 
 
 **CRITICAL WORKFLOW - FOLLOW THESE STEPS IN ORDER:**
 
-**STEP 1: DOCUMENT TYPE IDENTIFICATION**
+**DOCUMENT TYPE IDENTIFICATION**
 Analyze the customer documents and identify the PRIMARY document type from these categories:
 - Salary Slips
 - Bank Statement (Salaried)
@@ -1073,7 +1073,7 @@ Use the correct age-based multiplier from guidelines:
 - Age 51-65: 10x
 - Age >65: 6x
 
-**STEP 4: PRECISE CALCULATION**
+**PRECISE CALCULATION**
 Apply the exact formula for the identified document type using actual values from customer documents.
 
 **Output Format:**
