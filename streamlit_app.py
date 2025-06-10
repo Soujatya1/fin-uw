@@ -945,6 +945,8 @@ Provide detailed analysis including:
 | Parameter | Value | Document Type Method |
 |-----------|-------|---------------------|
 
+This table should hold Document type, Customer Age, Policy Type and the important financials extracted from the uploaded documents.
+
 **Risk Assessment:**
 - Income Stability: [Analysis]
 - Debt-to-Income Ratio: [If applicable]
