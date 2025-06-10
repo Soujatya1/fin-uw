@@ -942,8 +942,8 @@ Compare your calculation with the generic method to ensure accuracy.
 Provide detailed analysis including:
 
 **Document Analysis Summary:**
-| Parameter | Value | Source Location | Document Type Method |
-|-----------|-------|----------------|---------------------|
+| Parameter | Value | Document Type Method |
+|-----------|-------|---------------------|
 
 **Risk Assessment:**
 - Income Stability: [Analysis]
