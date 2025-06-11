@@ -816,6 +816,8 @@ For bank statements, you MUST first determine which calculation method to use:
    - IF salary credits are found: Use "Bank Statement (Salaried)" method
    - IF NO salary credits found: Use "Bank Statement (Closing Balance)" method
 
+IMPORTANT: For Credit Card statement identification, if you cannot, also search for the word "Credit Cards" in the document
+
 **Output Format:**
 ```
 PRIMARY DOCUMENT TYPE IDENTIFIED: [Document Type]
