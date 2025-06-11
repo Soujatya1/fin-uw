@@ -811,7 +811,7 @@ For bank statements, you MUST first determine which calculation method to use:
 
 1. **SALARY DETECTION PHASE:** Carefully scan the bank statement for salary-related transactions:
    - Look for regular monthly credits with terms like: "SALARY", "SAL", "PAY", "PAYROLL", "WAGES", "MONTHLY CREDIT"
-   - Look for similar amount credited from the same Description for atleast 3 months
+   - Look for similar amount credited from the same source for atleast 3 months
    
 2. **AUTOMATIC METHOD SELECTION:**
    - IF salary credits are found: Use "Bank Statement (Salaried)" method
