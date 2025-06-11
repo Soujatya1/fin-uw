@@ -828,7 +828,7 @@ Scan for these SPECIFIC keyword patterns by document type:
 - STRUCTURE: Investment transaction history
 
 **Credit Card Statement:**
-- MANDATORY: "Credit Card Statement", "Card Number", "Credit Limit"
+- MANDATORY: "Credit Card Statement", "Card Number", "Credit Limit", "Payments/Credits"
 - SUPPORTING: "Minimum Amount Due", "Payment Due Date", "Transaction Details"
 - STRUCTURE: Monthly billing statement format
 
