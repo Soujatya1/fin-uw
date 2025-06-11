@@ -809,7 +809,7 @@ Analyze the customer documents and identify the PRIMARY document type from these
 For bank statements, you MUST first determine which calculation method to use:
 
 1. **SALARY DETECTION PHASE:** Carefully scan the bank statement for salary-related transactions:
-   IMPORTANT - "Only" Look for monthly credits with terms like: "SALARY", "SAL", "PAY", "PAYROLL", "WAGES", "MONTHLY CREDIT". "Do not hallucinate yourself by looking into regular credits".
+   IMPORTANT - "Only" Look for monthly credits with terms like: "SALARY", "SAL", "PAY", "PAYROLL", "WAGES", "MONTHLY CREDIT". If NOT, you can also refer to same amount of Amounts credited for a few months.
    
 2. **AUTOMATIC METHOD SELECTION:**
    - IF salary credits are found: Use "Bank Statement (Salaried)" method
