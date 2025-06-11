@@ -898,8 +898,6 @@ Apply the exact formula for the identified document type using actual values fro
 BANK STATEMENT ANALYSIS:
 Salary Detection Scan:
 - Searched for: [List salary-related keywords found/not found]
-- Regular Monthly Credits: [Found/Not Found]
-- Salary Patterns: [Describe any patterns found]
 - Decision: [Salaried Method / Closing Balance Method]
 
 CALCULATION METHOD SELECTED: [Method name]
