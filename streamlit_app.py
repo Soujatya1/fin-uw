@@ -35,7 +35,7 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("💰 Financial Underwriting Assistant")
+st.title("💰 Financial Underwriting Assitant")
 
 def get_income_multiplier(age: int, policy_type: str) -> int:
     if policy_type.lower() == "term":
