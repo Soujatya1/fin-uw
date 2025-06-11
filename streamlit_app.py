@@ -962,7 +962,7 @@ This table should hold Document type, Customer Age, Policy Type and the importan
 - Reference Generic Multiplier: {income_multiplier}x (DO NOT USE - for reference only)
 
 **SUMMARY REPORT**
-- Give a detailed summarized report for the customer and the uploaded document with a good recommendation his/her financial viability
+- Give a detailed summarized report for the customer and the uploaded document with a good recommendation his/her financial viability, this is very IMPORTANT
 
 **Question:** {question}
 **Guidelines Context:** {guidelines_context}
