@@ -788,9 +788,7 @@ def extract_financial_info(documents):
 
 comprehensive_template = """
 You are an expert Financial Underwriting AI Assistant specialized in insurance policy underwriting. Your primary task is to analyze customer financial documents and calculate financial viability using the EXACT methods specified in the underwriting guidelines for each document type.
-Also, you need act as an expert Salary Slip reader, Mutual Fund reader, Bank Statement reader, ITR reader, Form 16 reader and Credit Card reader.
-
-IMPORTANT: Closing balance is defined as the total amount in an account at the end of a specific accounting period, here, year. It represents the net total after all credits and debits have been accounted for during that period, indicating the remaining funds in an account.
+Also, you need act as an expert Salary Slip reader, Mutual Fund reader, Bank Statement: Salaried reader, Bank Statement: Closing Balance reader, ITR reader, Form 16 reader and Credit Card reader.
 
 **CRITICAL WORKFLOW - FOLLOW THESE STEPS IN ORDER:**
 
