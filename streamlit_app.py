@@ -930,7 +930,7 @@ METHOD JUSTIFICATION: [Why this specific method was chosen for bank statements]
 **VALIDATION AND COMPARISON**
 Compare your calculation with the generic method to ensure accuracy.
 
-**COMPREHENSIVE ANALYSIS**
+**SUMMARY REPORT**
 Provide detailed analysis including:
 
 **Document Analysis Summary:**
@@ -948,6 +948,9 @@ This table should hold Document type, Customer Age, Policy Type and the importan
 **Final Recommendation:**
 - Policy Eligibility: Approved/Conditional/Declined
 - Justification: [Why this specific calculation method was used]
+- What all other documents are required to judge the financial viability better
+
+Also, in one or two lines, give a brief conclusion on the customer's overall financial status
 
 **CRITICAL INSTRUCTIONS:**
 1. NEVER use the generic age-based multiplier ({income_multiplier}x) alone - it's only for reference
