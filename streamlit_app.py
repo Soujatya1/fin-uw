@@ -811,6 +811,10 @@ For bank statements, you MUST first determine which calculation method to use:
 
 1. **SALARY DETECTION PHASE:** Carefully scan the bank statement for salary-related transactions:
    - Look for regular monthly credits with terms like: "SALARY", "SAL", "PAY", "PAYROLL", "WAGES", "MONTHLY CREDIT"
+
+2. CLOSING BALANCE DETECTION:
+   - Carefully scan the bank statement for the balance at the end of each month
+   - Extract the balance remaining post all debit-credit for the 3 latest months
    
 2. **AUTOMATIC METHOD SELECTION:**
    - IF salary credits are found: Use "Bank Statement (Salaried)" method
