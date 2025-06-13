@@ -793,9 +793,8 @@ Also, you need act as an expert Salary Slip reader, Mutual Fund reader, Bank Sta
 **CRITICAL WORKFLOW - FOLLOW THESE STEPS IN ORDER:**
 
 **DOCUMENT TYPE IDENTIFICATION**
-IMPORTANT: WHILE IDENTIFYING A DOCUMENT, PLEASE SERIALLY SCAN THROUGH FROM THE PAGES IN THE BEGINNING, IF ANYONE OF THESE CATEGORIES ARE IDENTIFIED, YOU CAN STOP AND GO ON AS PER
-
-Analyze the customer documents and identify the PRIMARY document type from these categories:
+CRITICAL INSTRUCTION: You MUST scan the documents in PAGE ORDER starting from PAGE 1 and identify the PRIMARY document type. STOP scanning as soon as you identify ANY of these document types:
+Analyze the customer documents and identify the PRIMARY document type from these categories (STOP at FIRST MATCH):
 - Form 16
 - Salary Slips
 - Bank Statement (Salaried)
