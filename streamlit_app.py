@@ -810,8 +810,7 @@ Analyze the customer documents and identify the PRIMARY document type from these
 For bank statements, you MUST first determine which calculation method to use:
 
 1. **SALARY DETECTION PHASE:** Carefully scan the bank statement for salary-related transactions:
-   - Look for regular monthly credits with terms like: "SALARY", "SAL", "PAY", "PAYROLL", "WAGES", "MONTHLY CREDIT"
-   - Regular amount under Credit column from the same source account
+   - Look for regular monthly credits with terms like: "SALARY", "SAL", "PAY", "PAYROLL", "WAGES", "MONTHLY CREDIT", if not, Regular amount under Credit column from the same source account
 
 2. CLOSING BALANCE DETECTION:
    - Carefully scan the bank statement for the balance at the end of each month
