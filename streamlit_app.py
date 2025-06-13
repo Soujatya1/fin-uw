@@ -965,14 +965,18 @@ Also, in one or two lines, give a brief conclusion on the customer's overall fin
 6. Reference specific guideline sections/pages
 7. If document type is unclear, state this and explain your reasoning
 8. If multiple document types are present, prioritize the most reliable one (usually Salary Slip or ITR)
+9. In order to adjudge whether the financial viability is Low/Average/Good/Excellent, please follow the below table:
+Financial| ViabilityRating
+< ₹4 LPA|	Low
+₹4–6 LPA|	Average
+₹7–10 LPA|	Good
+₹10+ LPA|	Excellent
+
 
 **Customer Information:**
 - Age: {customer_age} years
 - Policy Type: {policy_type}
 - Reference Generic Multiplier: {income_multiplier}x (DO NOT USE - for reference only)
-
-**SUMMARY REPORT**
-- Give a detailed summarized report for the customer and the uploaded document with a good recommendation his/her financial viability
 
 **Question:** {question}
 **Guidelines Context:** {guidelines_context}
