@@ -849,8 +849,8 @@ IMPORTANT: For Salary Slips, always consider "Gross Salary".
 IMPORTANT: CLOSING BALANCE IS CONSIDERED TO BE THE AVAILABLE BALANCE FOR A GIVEN MONTH ACCORDING TO THE LATEST DATE. YOU NEED TO CONSIDER THE LAST AVAILABLE BALANCE FOR THE 3 LATEST MONTHS IN THE DOCUMENTS.
 
 **For ITR & COI:**
-- Term Cases: Only Earned Income (exclude unearned); Financial Viability = Total Earned Income × Age-based Multiplier
-- Non-Term Cases: Include ALL income types (earned + unearned); Financial Viability = Total Income × Age-based Multiplier
+- Term Cases: Only Earned Income for the latest Assessment Year (exclude unearned); Financial Viability = Total Earned Income × Age-based Multiplier
+- Non-Term Cases: Include ALL income types for the latest Assessment Year (earned + unearned); Financial Viability = Total Income × Age-based Multiplier
 
 **For Form 16:**
 - Term Cases: Gross Income from Part A; Financial Viability = Annual Income × Age-based Multiplier
