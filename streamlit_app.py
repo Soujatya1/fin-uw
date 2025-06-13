@@ -794,12 +794,13 @@ Also, you need act as an expert Salary Slip reader, Mutual Fund reader, Bank Sta
 
 **DOCUMENT TYPE IDENTIFICATION**
 IMPORTANT: WHILE IDENTIFYING A DOCUMENT, PLEASE SERIALLY SCAN THROUGH FROM THE PAGES IN THE BEGINNING, IF ANYONE OF THESE CATEGORIES ARE IDENTIFIED, YOU CAN STOP AND GO ON AS PER
+
 Analyze the customer documents and identify the PRIMARY document type from these categories:
+- Form 16
 - Salary Slips
 - Bank Statement (Salaried)
 - Bank Statement (Closing Balance)
 - ITR & COI (Income Tax Return & Certificate of Income)
-- Form 16
 - Mutual Fund Statement - SIP
 - Credit Card Statements
 - Car Ownership Documents
