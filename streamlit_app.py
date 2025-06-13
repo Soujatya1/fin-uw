@@ -965,11 +965,6 @@ Also, in one or two lines, give a brief conclusion on the customer's overall fin
 6. Reference specific guideline sections/pages
 7. If document type is unclear, state this and explain your reasoning
 8. If multiple document types are present, prioritize the most reliable one (usually Salary Slip or ITR)
-9. In order to adjudge whether the financial viability is Low/Average/Good/Excellent, please follow the below table:
-Less than ₹4,00,000: Low
-₹4,00,000 – 6,00,000: Average
-₹7,00,000 – 10,00,000: Good
-Above ₹10,00,000: Excellent
 
 
 **Customer Information:**
