@@ -296,46 +296,16 @@ financial_extractor = FinancialDataExtractor()
 
 def setup_vision_client():
     try:
-        import os
-        import json
-        from google.cloud import vision
-        from google.oauth2 import service_account
+        api_key = st.session_state.get('google_vision_api_key')
         
-        # Method 1: Environment variables (highest priority)
-        if os.getenv('GOOGLE_APPLICATION_CREDENTIALS'):
-            return vision.ImageAnnotatorClient()
-        
-        # Method 2: Service account info from environment
-        service_account_info = os.getenv('GOOGLE_SERVICE_ACCOUNT_INFO')
-        if service_account_info:
-            credentials_data = json.loads(service_account_info)
-            credentials = service_account.Credentials.from_service_account_info(
-                credentials_data,
-                scopes=['https://www.googleapis.com/auth/cloud-platform']
-            )
-            return vision.ImageAnnotatorClient(credentials=credentials)
-        
-        # Method 3: Session state JSON text
-        credentials_json = st.session_state.get('service_account_json')
-        if credentials_json:
-            credentials_data = json.loads(credentials_json)
-            credentials = service_account.Credentials.from_service_account_info(
-                credentials_data,
-                scopes=['https://www.googleapis.com/auth/cloud-platform']
-            )
-            return vision.ImageAnnotatorClient(credentials=credentials)
-        
-        # Method 4: Session state file upload - FIXED
-        credentials_data = st.session_state.get('service_account_credentials')
-        if credentials_data and isinstance(credentials_data, dict):
-            credentials = service_account.Credentials.from_service_account_info(
-                credentials_data,
-                scopes=['https://www.googleapis.com/auth/cloud-platform']
-            )
-            return vision.ImageAnnotatorClient(credentials=credentials)
-        
-        return None
-        
+        if not api_key:
+            st.error("⚠️ Please enter your Google Vision API key in the sidebar.")
+            return None
+            
+        client = vision.ImageAnnotatorClient(
+            client_options={"api_key": api_key}
+        )
+        return client
     except Exception as e:
         st.error(f"Error setting up Google Vision client: {str(e)}")
         return None
@@ -1392,160 +1362,70 @@ if "last_risk_assessment" not in st.session_state:
     st.session_state.last_risk_assessment = False
     
 
-import streamlit as st
-import json
-
 with st.sidebar:
-    # Add debugging info
-    try:
-        pii_enabled = st.toggle("Enable PII Shield", value=True, help="Automatically anonymize personal information")
-        
-        # Check if pii_shield is properly initialized
-        if 'pii_shield' in globals() and hasattr(pii_shield, 'anonymization_enabled'):
-            pii_shield.anonymization_enabled = pii_enabled
-        else:
-            st.error("⚠️ PII Shield not properly initialized")
-            pii_enabled = False
-        
-        if pii_enabled and 'pii_shield' in globals():
-            st.success("🛡️ PII Shield Active")
-            
-            # Safe access to replacement_map
-            if hasattr(pii_shield, 'replacement_map') and pii_shield.replacement_map:
-                st.markdown("#### PII Detection Summary")
-                try:
-                    if hasattr(pii_shield, 'get_pii_summary'):
-                        pii_summary = pii_shield.get_pii_summary()
-                        if isinstance(pii_summary, dict):
-                            for pii_type, count in pii_summary.items():
-                                st.write(f"• {pii_type.replace('_', ' ').title()}: {count} instances")
-                        else:
-                            st.write(f"• PII detected but summary format is invalid (type: {type(pii_summary)})")
-                    else:
-                        st.write("• PII detected but summary method not available")
-                except Exception as e:
-                    st.write(f"• Error getting PII summary: {str(e)}")
-        else:
-            st.warning("⚠️ PII Shield Disabled - Use with caution!")
-    except Exception as e:
-        st.error(f"Error in PII Shield section: {str(e)}")
-        st.write(f"Debug info: pii_shield type = {type(pii_shield) if 'pii_shield' in globals() else 'not defined'}")
+    pii_enabled = st.toggle("Enable PII Shield", value=True, help="Automatically anonymize personal information")
+    pii_shield.anonymization_enabled = pii_enabled
     
+    if pii_enabled:
+        st.success("🛡️ PII Shield Active")
+        
+        if pii_shield.replacement_map:
+            st.markdown("#### PII Detection Summary")
+            pii_summary = pii_shield.get_pii_summary()
+            for pii_type, count in pii_summary.items():
+                st.write(f"• {pii_type.replace('_', ' ').title()}: {count} instances")
+    else:
+        st.warning("⚠️ PII Shield Disabled - Use with caution!")
     st.markdown("---")
     st.markdown("### 🔑 API Configuration")
     
-    # Groq API Key section (unchanged)
     groq_key = st.text_input(
         "Groq API Key",
         type="password",
-        value=st.session_state.get('groq_api_key', ''),
+        value=st.session_state.groq_api_key,
         help="Enter your Groq API key for LLM processing"
     )
     
-    if groq_key != st.session_state.get('groq_api_key', ''):
+    if groq_key != st.session_state.groq_api_key:
         st.session_state.groq_api_key = groq_key
         st.session_state.model_initialized = False
     
-    # Google Vision Service Account section (replaces API key)
-    st.markdown("#### Google Vision Authentication")
+    vision_key = st.text_input(
+        "Google Vision API Key",
+        type="password",
+        value=st.session_state.google_vision_api_key,
+        help="Enter your Google Vision API key for OCR processing"
+    )
     
-    # Check if environment variables are set
-    import os
-    env_auth_available = bool(os.getenv('GOOGLE_APPLICATION_CREDENTIALS') or os.getenv('GOOGLE_SERVICE_ACCOUNT_INFO'))
+    if vision_key != st.session_state.google_vision_api_key:
+        st.session_state.google_vision_api_key = vision_key
     
-    if env_auth_available:
-        st.info("🔐 Using environment credentials")
-        auth_method = "environment"
-    else:
-        auth_method = st.radio(
-            "Authentication Method",
-            ["Service Account JSON", "Service Account File Upload"],
-            help="Choose how to provide your Google Cloud Service Account credentials"
-        )
-        
-        if auth_method == "Service Account JSON":
-            credentials_json = st.text_area(
-                "Service Account JSON",
-                height=150,
-                help="Paste your complete Google Cloud Service Account JSON here",
-                placeholder='{\n  "type": "service_account",\n  "project_id": "your-project-id",\n  ...\n}',
-                key="service_account_json_input"
-            )
-            
-            if credentials_json:
-                try:
-                    credentials_data = json.loads(credentials_json)
-                    st.session_state['service_account_json'] = credentials_json
-                    st.success("✅ Service Account JSON validated")
-                    st.write(f"**Project:** {credentials_data.get('project_id', 'N/A')}")
-                    st.write(f"**Email:** {credentials_data.get('client_email', 'N/A')[:30]}...")
-                except json.JSONDecodeError:
-                    st.error("❌ Invalid JSON format")
-                    if 'service_account_json' in st.session_state:
-                        del st.session_state['service_account_json']
-            else:
-                if 'service_account_json' in st.session_state:
-                    del st.session_state['service_account_json']
-        
-        elif auth_method == "Service Account File Upload":
-            uploaded_file = st.file_uploader(
-                "Upload Service Account JSON File",
-                type=['json'],
-                help="Upload your Google Cloud Service Account JSON file"
-            )
-            
-            if uploaded_file is not None:
-                try:
-                    credentials_data = json.load(uploaded_file)
-                    st.session_state['service_account_credentials'] = credentials_data
-                    st.success("✅ Service Account file loaded")
-                    st.write(f"**Project:** {credentials_data.get('project_id', 'N/A')}")
-                    st.write(f"**Email:** {credentials_data.get('client_email', 'N/A')[:30]}...")
-                except json.JSONDecodeError:
-                    st.error("❌ Invalid JSON file")
-                except Exception as e:
-                    st.error(f"❌ Error loading file: {str(e)}")
-            else:
-                if 'service_account_credentials' in st.session_state:
-                    del st.session_state['service_account_credentials']
-    
-    if st.session_state.get('groq_api_key'):
+    if st.session_state.groq_api_key:
         st.success("✅ Groq API Key Set")
     else:
         st.error("❌ Groq API Key Required")
     
-    # Google Vision Status
+    if st.session_state.google_vision_api_key:
+        st.success("✅ Google Vision API Key Set")
+    else:
+        st.warning("⚠️ Google Vision API Key Optional (for scanned PDFs)")
     st.markdown("### 📸 Google Vision Status")
     vision_client = setup_vision_client()
     if vision_client:
         st.success("✅ Google Vision API Ready")
     else:
         st.error("❌ Google Vision API Not Available")
-        # Check if environment variables are set for the error message
-        import os
-        env_auth_available = bool(os.getenv('GOOGLE_APPLICATION_CREDENTIALS') or os.getenv('GOOGLE_SERVICE_ACCOUNT_INFO'))
-        if not env_auth_available:
-            st.info("💡 Set up Service Account credentials above")
+        st.markdown("Set `GOOGLE_VISION_API_KEY` in secrets.toml or environment")
     
     if st.button("🗑️ Clear Analysis History"):
-        try:
-            st.session_state.conversation_history = []
-            st.session_state.table_stats = {"total_tables": 0, "tables_by_page": {}}
-            if 'pii_shield' in globals() and hasattr(pii_shield, 'replacement_map'):
-                pii_shield.replacement_map.clear()
-            st.rerun()
-        except Exception as e:
-            st.error(f"Error clearing history: {str(e)}")
+        st.session_state.conversation_history = []
+        st.session_state.table_stats = {"total_tables": 0, "tables_by_page": {}}
+        pii_shield.replacement_map.clear()
+        st.rerun()
     
     if st.button("🧹 Clear PII Cache"):
-        try:
-            if 'pii_shield' in globals() and hasattr(pii_shield, 'replacement_map'):
-                pii_shield.replacement_map.clear()
-                st.success("PII cache cleared")
-            else:
-                st.error("PII shield not properly initialized")
-        except Exception as e:
-            st.error(f"Error clearing PII cache: {str(e)}")
+        pii_shield.replacement_map.clear()
+        st.success("PII cache cleared")
 
 col1, col2 = st.columns(2)
 
