@@ -1381,98 +1381,98 @@ import streamlit as st
 import json
 
 with st.sidebar:
-        pii_enabled = st.toggle("Enable PII Shield", value=True, help="Automatically anonymize personal information")
-        pii_shield.anonymization_enabled = pii_enabled
+    pii_enabled = st.toggle("Enable PII Shield", value=True, help="Automatically anonymize personal information")
+    pii_shield.anonymization_enabled = pii_enabled
+    
+    if pii_enabled:
+        st.success("🛡️ PII Shield Active")
         
-        if pii_enabled:
-            st.success("🛡️ PII Shield Active")
-            
-            if pii_shield.replacement_map:
-                st.markdown("#### PII Detection Summary")
-                pii_summary = pii_shield.get_pii_summary()
-                for pii_type, count in pii_summary.items():
-                    st.write(f"• {pii_type.replace('_', ' ').title()}: {count} instances")
-        else:
-            st.warning("⚠️ PII Shield Disabled - Use with caution!")
-        
-        st.markdown("---")
-        st.markdown("### 🔑 API Configuration")
-        
-        # Groq API Key section (unchanged)
-        groq_key = st.text_input(
-            "Groq API Key",
-            type="password",
-            value=st.session_state.groq_api_key,
-            help="Enter your Groq API key for LLM processing"
+        if pii_shield.replacement_map:
+            st.markdown("#### PII Detection Summary")
+            pii_summary = pii_shield.get_pii_summary()
+            for pii_type, count in pii_summary.items():
+                st.write(f"• {pii_type.replace('_', ' ').title()}: {count} instances")
+    else:
+        st.warning("⚠️ PII Shield Disabled - Use with caution!")
+    
+    st.markdown("---")
+    st.markdown("### 🔑 API Configuration")
+    
+    # Groq API Key section (unchanged)
+    groq_key = st.text_input(
+        "Groq API Key",
+        type="password",
+        value=st.session_state.groq_api_key,
+        help="Enter your Groq API key for LLM processing"
+    )
+    
+    if groq_key != st.session_state.groq_api_key:
+        st.session_state.groq_api_key = groq_key
+        st.session_state.model_initialized = False
+    
+    # Google Vision Service Account section (replaces API key)
+    st.markdown("#### Google Vision Authentication")
+    
+    # Check if environment variables are set
+    import os
+    env_auth_available = bool(os.getenv('GOOGLE_APPLICATION_CREDENTIALS') or os.getenv('GOOGLE_SERVICE_ACCOUNT_INFO'))
+    
+    if env_auth_available:
+        st.info("🔐 Using environment credentials")
+        auth_method = "environment"
+    else:
+        auth_method = st.radio(
+            "Authentication Method",
+            ["Service Account JSON", "Service Account File Upload"],
+            help="Choose how to provide your Google Cloud Service Account credentials"
         )
         
-        if groq_key != st.session_state.groq_api_key:
-            st.session_state.groq_api_key = groq_key
-            st.session_state.model_initialized = False
-        
-        # Google Vision Service Account section (replaces API key)
-        st.markdown("#### Google Vision Authentication")
-        
-        # Check if environment variables are set
-        import os
-        env_auth_available = bool(os.getenv('GOOGLE_APPLICATION_CREDENTIALS') or os.getenv('GOOGLE_SERVICE_ACCOUNT_INFO'))
-        
-        if env_auth_available:
-            st.info("🔐 Using environment credentials")
-            auth_method = "environment"
-        else:
-            auth_method = st.radio(
-                "Authentication Method",
-                ["Service Account JSON", "Service Account File Upload"],
-                help="Choose how to provide your Google Cloud Service Account credentials"
+        if auth_method == "Service Account JSON":
+            credentials_json = st.text_area(
+                "Service Account JSON",
+                height=150,
+                help="Paste your complete Google Cloud Service Account JSON here",
+                placeholder='{\n  "type": "service_account",\n  "project_id": "your-project-id",\n  ...\n}',
+                key="service_account_json_input"
             )
             
-            if auth_method == "Service Account JSON":
-                credentials_json = st.text_area(
-                    "Service Account JSON",
-                    height=150,
-                    help="Paste your complete Google Cloud Service Account JSON here",
-                    placeholder='{\n  "type": "service_account",\n  "project_id": "your-project-id",\n  ...\n}',
-                    key="service_account_json_input"
-                )
-                
-                if credentials_json:
-                    try:
-                        credentials_data = json.loads(credentials_json)
-                        st.session_state['service_account_json'] = credentials_json
-                        st.success("✅ Service Account JSON validated")
-                        st.write(f"**Project:** {credentials_data.get('project_id', 'N/A')}")
-                        st.write(f"**Email:** {credentials_data.get('client_email', 'N/A')[:30]}...")
-                    except json.JSONDecodeError:
-                        st.error("❌ Invalid JSON format")
-                        if 'service_account_json' in st.session_state:
-                            del st.session_state['service_account_json']
-                else:
+            if credentials_json:
+                try:
+                    credentials_data = json.loads(credentials_json)
+                    st.session_state['service_account_json'] = credentials_json
+                    st.success("✅ Service Account JSON validated")
+                    st.write(f"**Project:** {credentials_data.get('project_id', 'N/A')}")
+                    st.write(f"**Email:** {credentials_data.get('client_email', 'N/A')[:30]}...")
+                except json.JSONDecodeError:
+                    st.error("❌ Invalid JSON format")
                     if 'service_account_json' in st.session_state:
                         del st.session_state['service_account_json']
-            
-            elif auth_method == "Service Account File Upload":
-                uploaded_file = st.file_uploader(
-                    "Upload Service Account JSON File",
-                    type=['json'],
-                    help="Upload your Google Cloud Service Account JSON file"
-                )
-                
-                if uploaded_file is not None:
-                    try:
-                        credentials_data = json.load(uploaded_file)
-                        st.session_state['service_account_credentials'] = credentials_data
-                        st.success("✅ Service Account file loaded")
-                        st.write(f"**Project:** {credentials_data.get('project_id', 'N/A')}")
-                        st.write(f"**Email:** {credentials_data.get('client_email', 'N/A')[:30]}...")
-                    except json.JSONDecodeError:
-                        st.error("❌ Invalid JSON file")
-                    except Exception as e:
-                        st.error(f"❌ Error loading file: {str(e)}")
-                else:
-                    if 'service_account_credentials' in st.session_state:
-                        del st.session_state['service_account_credentials']
+            else:
+                if 'service_account_json' in st.session_state:
+                    del st.session_state['service_account_json']
         
+        elif auth_method == "Service Account File Upload":
+            uploaded_file = st.file_uploader(
+                "Upload Service Account JSON File",
+                type=['json'],
+                help="Upload your Google Cloud Service Account JSON file"
+            )
+            
+            if uploaded_file is not None:
+                try:
+                    credentials_data = json.load(uploaded_file)
+                    st.session_state['service_account_credentials'] = credentials_data
+                    st.success("✅ Service Account file loaded")
+                    st.write(f"**Project:** {credentials_data.get('project_id', 'N/A')}")
+                    st.write(f"**Email:** {credentials_data.get('client_email', 'N/A')[:30]}...")
+                except json.JSONDecodeError:
+                    st.error("❌ Invalid JSON file")
+                except Exception as e:
+                    st.error(f"❌ Error loading file: {str(e)}")
+            else:
+                if 'service_account_credentials' in st.session_state:
+                    del st.session_state['service_account_credentials']
+    
     if st.session_state.groq_api_key:
         st.success("✅ Groq API Key Set")
     else:
