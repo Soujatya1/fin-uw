@@ -296,30 +296,45 @@ financial_extractor = FinancialDataExtractor()
 
 def setup_vision_client():
     try:
-        # Check if service account credentials are provided
+        import os
+        import json
+        from google.cloud import vision
+        from google.oauth2 import service_account
+        
+        # Method 1: Environment variables (highest priority)
+        if os.getenv('GOOGLE_APPLICATION_CREDENTIALS'):
+            return vision.ImageAnnotatorClient()
+        
+        # Method 2: Service account info from environment
+        service_account_info = os.getenv('GOOGLE_SERVICE_ACCOUNT_INFO')
+        if service_account_info:
+            credentials_data = json.loads(service_account_info)
+            credentials = service_account.Credentials.from_service_account_info(
+                credentials_data,
+                scopes=['https://www.googleapis.com/auth/cloud-platform']
+            )
+            return vision.ImageAnnotatorClient(credentials=credentials)
+        
+        # Method 3: Session state JSON text
         credentials_json = st.session_state.get('service_account_json')
-        
-        if not credentials_json:
-            st.error("⚠️ Please enter your Service Account JSON in the sidebar.")
-            return None
-        
-        # Parse the JSON credentials
-        try:
+        if credentials_json:
             credentials_data = json.loads(credentials_json)
-        except json.JSONDecodeError:
-            st.error("❌ Invalid JSON format. Please check your Service Account JSON.")
-            return None
+            credentials = service_account.Credentials.from_service_account_info(
+                credentials_data,
+                scopes=['https://www.googleapis.com/auth/cloud-platform']
+            )
+            return vision.ImageAnnotatorClient(credentials=credentials)
         
-        # Create credentials from the service account info
-        credentials = service_account.Credentials.from_service_account_info(
-            credentials_data,
-            scopes=['https://www.googleapis.com/auth/cloud-platform']
-        )
+        # Method 4: Session state file upload - FIXED
+        credentials_data = st.session_state.get('service_account_credentials')
+        if credentials_data and isinstance(credentials_data, dict):
+            credentials = service_account.Credentials.from_service_account_info(
+                credentials_data,
+                scopes=['https://www.googleapis.com/auth/cloud-platform']
+            )
+            return vision.ImageAnnotatorClient(credentials=credentials)
         
-        # Create the Vision client with service account credentials
-        client = vision.ImageAnnotatorClient(credentials=credentials)
-        
-        return client
+        return None
         
     except Exception as e:
         st.error(f"Error setting up Google Vision client: {str(e)}")
