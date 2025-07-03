@@ -296,16 +296,31 @@ financial_extractor = FinancialDataExtractor()
 
 def setup_vision_client():
     try:
-        api_key = st.session_state.get('google_vision_api_key')
+        # Check if service account credentials are provided
+        credentials_json = st.session_state.get('service_account_json')
         
-        if not api_key:
-            st.error("⚠️ Please enter your Google Vision API key in the sidebar.")
+        if not credentials_json:
+            st.error("⚠️ Please enter your Service Account JSON in the sidebar.")
             return None
-            
-        client = vision.ImageAnnotatorClient(
-            client_options={"api_key": api_key}
+        
+        # Parse the JSON credentials
+        try:
+            credentials_data = json.loads(credentials_json)
+        except json.JSONDecodeError:
+            st.error("❌ Invalid JSON format. Please check your Service Account JSON.")
+            return None
+        
+        # Create credentials from the service account info
+        credentials = service_account.Credentials.from_service_account_info(
+            credentials_data,
+            scopes=['https://www.googleapis.com/auth/cloud-platform']
         )
+        
+        # Create the Vision client with service account credentials
+        client = vision.ImageAnnotatorClient(credentials=credentials)
+        
         return client
+        
     except Exception as e:
         st.error(f"Error setting up Google Vision client: {str(e)}")
         return None
@@ -1362,60 +1377,119 @@ if "last_risk_assessment" not in st.session_state:
     st.session_state.last_risk_assessment = False
     
 
+import streamlit as st
+import json
+
 with st.sidebar:
-    pii_enabled = st.toggle("Enable PII Shield", value=True, help="Automatically anonymize personal information")
-    pii_shield.anonymization_enabled = pii_enabled
-    
-    if pii_enabled:
-        st.success("🛡️ PII Shield Active")
+        pii_enabled = st.toggle("Enable PII Shield", value=True, help="Automatically anonymize personal information")
+        pii_shield.anonymization_enabled = pii_enabled
         
-        if pii_shield.replacement_map:
-            st.markdown("#### PII Detection Summary")
-            pii_summary = pii_shield.get_pii_summary()
-            for pii_type, count in pii_summary.items():
-                st.write(f"• {pii_type.replace('_', ' ').title()}: {count} instances")
-    else:
-        st.warning("⚠️ PII Shield Disabled - Use with caution!")
-    st.markdown("---")
-    st.markdown("### 🔑 API Configuration")
-    
-    groq_key = st.text_input(
-        "Groq API Key",
-        type="password",
-        value=st.session_state.groq_api_key,
-        help="Enter your Groq API key for LLM processing"
-    )
-    
-    if groq_key != st.session_state.groq_api_key:
-        st.session_state.groq_api_key = groq_key
-        st.session_state.model_initialized = False
-    
-    vision_key = st.text_input(
-        "Google Vision API Key",
-        type="password",
-        value=st.session_state.google_vision_api_key,
-        help="Enter your Google Vision API key for OCR processing"
-    )
-    
-    if vision_key != st.session_state.google_vision_api_key:
-        st.session_state.google_vision_api_key = vision_key
-    
+        if pii_enabled:
+            st.success("🛡️ PII Shield Active")
+            
+            if pii_shield.replacement_map:
+                st.markdown("#### PII Detection Summary")
+                pii_summary = pii_shield.get_pii_summary()
+                for pii_type, count in pii_summary.items():
+                    st.write(f"• {pii_type.replace('_', ' ').title()}: {count} instances")
+        else:
+            st.warning("⚠️ PII Shield Disabled - Use with caution!")
+        
+        st.markdown("---")
+        st.markdown("### 🔑 API Configuration")
+        
+        # Groq API Key section (unchanged)
+        groq_key = st.text_input(
+            "Groq API Key",
+            type="password",
+            value=st.session_state.groq_api_key,
+            help="Enter your Groq API key for LLM processing"
+        )
+        
+        if groq_key != st.session_state.groq_api_key:
+            st.session_state.groq_api_key = groq_key
+            st.session_state.model_initialized = False
+        
+        # Google Vision Service Account section (replaces API key)
+        st.markdown("#### Google Vision Authentication")
+        
+        # Check if environment variables are set
+        import os
+        env_auth_available = bool(os.getenv('GOOGLE_APPLICATION_CREDENTIALS') or os.getenv('GOOGLE_SERVICE_ACCOUNT_INFO'))
+        
+        if env_auth_available:
+            st.info("🔐 Using environment credentials")
+            auth_method = "environment"
+        else:
+            auth_method = st.radio(
+                "Authentication Method",
+                ["Service Account JSON", "Service Account File Upload"],
+                help="Choose how to provide your Google Cloud Service Account credentials"
+            )
+            
+            if auth_method == "Service Account JSON":
+                credentials_json = st.text_area(
+                    "Service Account JSON",
+                    height=150,
+                    help="Paste your complete Google Cloud Service Account JSON here",
+                    placeholder='{\n  "type": "service_account",\n  "project_id": "your-project-id",\n  ...\n}',
+                    key="service_account_json_input"
+                )
+                
+                if credentials_json:
+                    try:
+                        credentials_data = json.loads(credentials_json)
+                        st.session_state['service_account_json'] = credentials_json
+                        st.success("✅ Service Account JSON validated")
+                        st.write(f"**Project:** {credentials_data.get('project_id', 'N/A')}")
+                        st.write(f"**Email:** {credentials_data.get('client_email', 'N/A')[:30]}...")
+                    except json.JSONDecodeError:
+                        st.error("❌ Invalid JSON format")
+                        if 'service_account_json' in st.session_state:
+                            del st.session_state['service_account_json']
+                else:
+                    if 'service_account_json' in st.session_state:
+                        del st.session_state['service_account_json']
+            
+            elif auth_method == "Service Account File Upload":
+                uploaded_file = st.file_uploader(
+                    "Upload Service Account JSON File",
+                    type=['json'],
+                    help="Upload your Google Cloud Service Account JSON file"
+                )
+                
+                if uploaded_file is not None:
+                    try:
+                        credentials_data = json.load(uploaded_file)
+                        st.session_state['service_account_credentials'] = credentials_data
+                        st.success("✅ Service Account file loaded")
+                        st.write(f"**Project:** {credentials_data.get('project_id', 'N/A')}")
+                        st.write(f"**Email:** {credentials_data.get('client_email', 'N/A')[:30]}...")
+                    except json.JSONDecodeError:
+                        st.error("❌ Invalid JSON file")
+                    except Exception as e:
+                        st.error(f"❌ Error loading file: {str(e)}")
+                else:
+                    if 'service_account_credentials' in st.session_state:
+                        del st.session_state['service_account_credentials']
+        
     if st.session_state.groq_api_key:
         st.success("✅ Groq API Key Set")
     else:
         st.error("❌ Groq API Key Required")
     
-    if st.session_state.google_vision_api_key:
-        st.success("✅ Google Vision API Key Set")
-    else:
-        st.warning("⚠️ Google Vision API Key Optional (for scanned PDFs)")
+    # Google Vision Status
     st.markdown("### 📸 Google Vision Status")
     vision_client = setup_vision_client()
     if vision_client:
         st.success("✅ Google Vision API Ready")
     else:
         st.error("❌ Google Vision API Not Available")
-        st.markdown("Set `GOOGLE_VISION_API_KEY` in secrets.toml or environment")
+        # Check if environment variables are set for the error message
+        import os
+        env_auth_available = bool(os.getenv('GOOGLE_APPLICATION_CREDENTIALS') or os.getenv('GOOGLE_SERVICE_ACCOUNT_INFO'))
+        if not env_auth_available:
+            st.info("💡 Set up Service Account credentials above")
     
     if st.button("🗑️ Clear Analysis History"):
         st.session_state.conversation_history = []
