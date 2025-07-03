@@ -1396,25 +1396,40 @@ import streamlit as st
 import json
 
 with st.sidebar:
-    pii_enabled = st.toggle("Enable PII Shield", value=True, help="Automatically anonymize personal information")
-    pii_shield.anonymization_enabled = pii_enabled
-    
-    if pii_enabled:
-        st.success("🛡️ PII Shield Active")
+    # Add debugging info
+    try:
+        pii_enabled = st.toggle("Enable PII Shield", value=True, help="Automatically anonymize personal information")
         
-        if pii_shield.replacement_map:
-            st.markdown("#### PII Detection Summary")
-            try:
-                pii_summary = pii_shield.get_pii_summary()
-                if isinstance(pii_summary, dict):
-                    for pii_type, count in pii_summary.items():
-                        st.write(f"• {pii_type.replace('_', ' ').title()}: {count} instances")
-                else:
-                    st.write("• PII detected but summary format is invalid")
-            except Exception as e:
-                st.write(f"• Error getting PII summary: {str(e)}")
-    else:
-        st.warning("⚠️ PII Shield Disabled - Use with caution!")
+        # Check if pii_shield is properly initialized
+        if 'pii_shield' in globals() and hasattr(pii_shield, 'anonymization_enabled'):
+            pii_shield.anonymization_enabled = pii_enabled
+        else:
+            st.error("⚠️ PII Shield not properly initialized")
+            pii_enabled = False
+        
+        if pii_enabled and 'pii_shield' in globals():
+            st.success("🛡️ PII Shield Active")
+            
+            # Safe access to replacement_map
+            if hasattr(pii_shield, 'replacement_map') and pii_shield.replacement_map:
+                st.markdown("#### PII Detection Summary")
+                try:
+                    if hasattr(pii_shield, 'get_pii_summary'):
+                        pii_summary = pii_shield.get_pii_summary()
+                        if isinstance(pii_summary, dict):
+                            for pii_type, count in pii_summary.items():
+                                st.write(f"• {pii_type.replace('_', ' ').title()}: {count} instances")
+                        else:
+                            st.write(f"• PII detected but summary format is invalid (type: {type(pii_summary)})")
+                    else:
+                        st.write("• PII detected but summary method not available")
+                except Exception as e:
+                    st.write(f"• Error getting PII summary: {str(e)}")
+        else:
+            st.warning("⚠️ PII Shield Disabled - Use with caution!")
+    except Exception as e:
+        st.error(f"Error in PII Shield section: {str(e)}")
+        st.write(f"Debug info: pii_shield type = {type(pii_shield) if 'pii_shield' in globals() else 'not defined'}")
     
     st.markdown("---")
     st.markdown("### 🔑 API Configuration")
@@ -1423,11 +1438,11 @@ with st.sidebar:
     groq_key = st.text_input(
         "Groq API Key",
         type="password",
-        value=st.session_state.groq_api_key,
+        value=st.session_state.get('groq_api_key', ''),
         help="Enter your Groq API key for LLM processing"
     )
     
-    if groq_key != st.session_state.groq_api_key:
+    if groq_key != st.session_state.get('groq_api_key', ''):
         st.session_state.groq_api_key = groq_key
         st.session_state.model_initialized = False
     
@@ -1494,7 +1509,7 @@ with st.sidebar:
                 if 'service_account_credentials' in st.session_state:
                     del st.session_state['service_account_credentials']
     
-    if st.session_state.groq_api_key:
+    if st.session_state.get('groq_api_key'):
         st.success("✅ Groq API Key Set")
     else:
         st.error("❌ Groq API Key Required")
@@ -1513,14 +1528,24 @@ with st.sidebar:
             st.info("💡 Set up Service Account credentials above")
     
     if st.button("🗑️ Clear Analysis History"):
-        st.session_state.conversation_history = []
-        st.session_state.table_stats = {"total_tables": 0, "tables_by_page": {}}
-        pii_shield.replacement_map.clear()
-        st.rerun()
+        try:
+            st.session_state.conversation_history = []
+            st.session_state.table_stats = {"total_tables": 0, "tables_by_page": {}}
+            if 'pii_shield' in globals() and hasattr(pii_shield, 'replacement_map'):
+                pii_shield.replacement_map.clear()
+            st.rerun()
+        except Exception as e:
+            st.error(f"Error clearing history: {str(e)}")
     
     if st.button("🧹 Clear PII Cache"):
-        pii_shield.replacement_map.clear()
-        st.success("PII cache cleared")
+        try:
+            if 'pii_shield' in globals() and hasattr(pii_shield, 'replacement_map'):
+                pii_shield.replacement_map.clear()
+                st.success("PII cache cleared")
+            else:
+                st.error("PII shield not properly initialized")
+        except Exception as e:
+            st.error(f"Error clearing PII cache: {str(e)}")
 
 col1, col2 = st.columns(2)
 
