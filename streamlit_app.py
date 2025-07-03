@@ -1404,9 +1404,15 @@ with st.sidebar:
         
         if pii_shield.replacement_map:
             st.markdown("#### PII Detection Summary")
-            pii_summary = pii_shield.get_pii_summary()
-            for pii_type, count in pii_summary.items():
-                st.write(f"• {pii_type.replace('_', ' ').title()}: {count} instances")
+            try:
+                pii_summary = pii_shield.get_pii_summary()
+                if isinstance(pii_summary, dict):
+                    for pii_type, count in pii_summary.items():
+                        st.write(f"• {pii_type.replace('_', ' ').title()}: {count} instances")
+                else:
+                    st.write("• PII detected but summary format is invalid")
+            except Exception as e:
+                st.write(f"• Error getting PII summary: {str(e)}")
     else:
         st.warning("⚠️ PII Shield Disabled - Use with caution!")
     
