@@ -13,3 +13,4 @@ xlsxwriter
 python-docx
 langgraph
 PyMuPDF
+langchain-huggingface
